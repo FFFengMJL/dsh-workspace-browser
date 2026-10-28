@@ -9,6 +9,9 @@ The bulk of this plugin's implementation, its refactors, and the related documen
 ## Features
 
 - Workspace grid and detail view, with registry/name/recent-activity ordering and native workspace reordering.
+- Workspace cards keep only pin, new session, and a "more" control on the card (icon buttons, one line); hide, rename, move up/down, and delete live in an overflow menu with keyboard, Escape, and outside-click handling.
+- Add workspace from the panel: type an existing absolute directory on the DSH host, or browse host directories when the Host composes the in-app directory backend; repeat paths resolve to the existing workspace.
+- Optional "simplify native session tree": off by default; when on, a compact entry replaces DSH's native workspace/session area and lists the open session, running sessions, sessions that just finished (running → idle transitions observed by the entry), and recent history with their owning workspace; clicking opens the conversation. Turning it off (or unloading the plugin) restores the native tree.
 - Metadata search across workspace names/paths and session titles/IDs, with all/workspace/session scopes.
 - Workspace, parent-directory grouping, and flat-session views; ungrouped sessions are shown without scanning disk or changing ownership.
 - Delegated subagent sessions are hidden by default and can be shown with a toggle; the marker comes from the catalog's `origin` field, so ordinary forks stay visible.
@@ -63,10 +66,12 @@ The only verified target is DSH `0.2.1-rc.4`; that is what `dsh.compatibility` i
 ## Scope and known limitations
 
 - Search matches catalog metadata only; it never searches conversation bodies.
-- Grouping, ordering, archive filter, density, subagent visibility, and workspace pin/hide preferences persist under the plugin-owned versioned browser key `dsh-workspace-browser.preferences.v1` and synchronize across same-origin tabs via `storage` events. They do not sync with the native sidebar or other browser profiles. If browser storage is unavailable, preferences remain in memory for the current page only. Search, detail view, and scroll position remain transient.
+- Grouping, ordering, archive filter, density, subagent visibility, workspace pin/hide, and the simplified sidebar preference persist under the plugin-owned versioned browser key `dsh-workspace-browser.preferences.v1` and synchronize across same-origin tabs via `storage` events. They do not sync with the native sidebar or other browser profiles. If browser storage is unavailable, preferences remain in memory for the current page only. Search, detail view, and scroll position remain transient.
 - Rename uses the public `ctx.remote.session.rename` endpoint without rewriting session logs. Archiving a running session requires an in-page confirmation and then requests stop-and-archive through the native workspace service.
 - Forking does not navigate automatically; the result notice offers an explicit open action.
-- Workspace creation remains in the native sidebar; rename and delete are available in the panel. Deleting removes only the registration — the folder and session logs stay, and those sessions appear under "Ungrouped". Session deletion/migration and repair of old session ownership remain out of scope.
+- Workspace creation goes through the public `workspaces.create({ path })`: the path must be an existing directory on the DSH host, and canonicalization, existence, permissions, and repeat-path reuse are Host decisions. The plugin does not create directories or scan disk. In-app browsing calls `uiWorkspace.listDirectory`; a Host composed with the native picker only reports that browsing is unavailable, and the path field remains usable. Session deletion/migration and repair of old session ownership remain out of scope.
+- "Simplify native session tree" shadows the whole native workspace/session area (header, search, list, and its dialogs) through a lower-priority `sidebar.workspaces` registration. While shadowed, the native search and add-workspace shortcuts still belong to the native registration and may target an unmounted view; use "restore native tree" in the entry when you need them or native conversation-content search. It is an optional compact navigation mode, not a complete replacement for the native tree.
+- The compact entry's session shortcut list is capped at five rows: the open session first, then running sessions, then sessions that finished while the entry was watching, then recent history. Archived rows, delegated subagents, and ordinary blank sessions are omitted (a blank session still appears when it is the open one). The Host catalog has no unread flag, so "just finished" is a view-local running → idle transition, not durable state; transitions that happen while the entry is not mounted (for example while the native tree is shown) are not backfilled, and the recent list covers them.
 
 Workspace pin/hide markers are plugin-owned browser preferences. They do not change native order, registration, or session ownership. Uninstalling the plugin does not clear its browser preference key. Session pin/archive and workspace reorder/rename/delete actions use DSH public services.
 
@@ -85,19 +90,23 @@ Individual steps: `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm test:bundle
 
 `pnpm check:package` writes the release tarball to `.release/` (git-ignored), unpacks it, and asserts the manifest DSH reads, the exact file set, the loader contract inside the unpacked package, no development paths or secrets, and a SHA-256 checksum. `pnpm pack` runs `pnpm check` through `prepack`, so a tarball is never produced from an unverified build.
 
-Tests cover metadata search, membership derivation, archive and subagent filtering, ordering, pin priority, hidden-workspace splitting, parent-path grouping, workspace-title pre-checks, Host failure text, preference migration, and synthetic 10,000-session catalogs. They do not inspect local DSH session bodies or production data.
+Tests cover metadata search, membership derivation, archive and subagent filtering, ordering, pin priority, hidden-workspace splitting, parent-path grouping, workspace-title and path pre-checks, manual move boundaries, Host failure text, directory-listing normalization, compact-sidebar lifecycle and session selection, cross-tab preference merging and refused-write fallback, preference migration, and synthetic 10,000-session catalogs. They do not inspect local DSH session bodies or production data.
 
 ### Source layout
 
 | Path | Responsibility |
 | --- | --- |
-| `src/client.tsx` | Cordis boundary: `inject` list, sidebar entry, keyed `main` view, and the single runtime-context narrowing. |
-| `src/ui/runtime.ts` | Narrow service ports and the snapshot subscription hook; no Cordis calls. |
+| `src/client.tsx` | Cordis boundary: `inject` list, sidebar entry, keyed `main` view, optional compact-sidebar installation, and the single runtime-context narrowing. |
+| `src/panel.ts` | Stable panel id/title shared by the sidebar entry and the main view. |
+| `src/ui/runtime.ts` | Narrow service ports and the snapshot subscription hook; workspace creation, directory-listing normalization, and error text. |
 | `src/ui/WorkspaceBrowser.tsx` | Panel state, derived lists, DSH action wiring. |
-| `src/ui/cards.tsx` | Presentational workspace card and session row. |
-| `src/ui/dialogs.tsx` | Accessible modal shell, archive/rename/delete confirmations, hidden-workspace manager. |
-| `src/ui/preferences.ts` | Preference loading, persistence, and cross-tab sync. |
-| `src/ui/styles.ts` | Single injected stylesheet; density lives in CSS custom properties. |
+| `src/ui/cards.tsx` | Presentational workspace card (with its overflow menu) and session row. |
+| `src/ui/dialogs.tsx` | Accessible modal shell, archive/rename/delete confirmations, add-workspace path/browse flow, hidden-workspace manager. |
+| `src/ui/sidebar.tsx` | Optional compact sidebar entry, its open/recent session shortcuts, and the preference-driven shadow controller. |
+| `src/ui/icons.tsx` | Shared inline SVG icons; no icon dependency. |
+| `src/ui/intents.ts` | One-shot add-workspace intent from the sidebar entry to the panel. |
+| `src/ui/preferences.ts` | Preference loading, persistence, and same-tab/cross-tab sync. |
+| `src/ui/styles.ts` | Single injected stylesheet; density lives in CSS custom properties, with separate sidebar-entry styles. |
 | `src/logic.ts` | React-free data rules (filter, sort, group, preference parsing) covered by tests. |
 | `scripts/check-bundle.mjs` | Replays the DSH client loader contract and the injected service port. |
 | `scripts/check-package.mjs` | Packs, unpacks, and verifies the installable tarball. |
