@@ -140,4 +140,6 @@ jobs:
 
           # Fails if the release (or an asset with the same name) already exists,
           # so a re-run never silently overwrites published bytes.
-          gh release create "${TAG}" "${tarballs[0]}" "${checksums[0]}" "${args[@]}"
+          # --repo is required: this job has no checkout, so gh cannot infer the
+          # repository from a git remote.
+          gh release create "${TAG}" "${tarballs[0]}" "${checksums[0]}" "${args[@]}" --repo "${REPO}"
