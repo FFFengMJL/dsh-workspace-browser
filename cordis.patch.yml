@@ -1,0 +1,4 @@
+# Profile layer: load the package host entry and its declared client bundle.
+- insert:
+    - id: dsh-workspace-browser
+      name: dsh-workspace-browser

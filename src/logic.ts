@@ -1,0 +1,379 @@
+/**
+ * Pure data logic for the workspace browser.
+ *
+ * This module is React-free and side-effect free so it can be unit tested
+ * without a browser, a Cordis context, or a live DSH Host. It only shapes
+ * metadata the Host already published: no conversation bodies, no filesystem
+ * scans, and no Host mutations.
+ *
+ * Naming convention: records mirror the DSH client catalog, while every helper
+ * takes plain string ids. Host ids are branded strings (`SessionId`,
+ * `WorkspaceId`); the browser treats them as opaque keys.
+ */
+
+/** One registered DSH workspace, reduced to the fields this browser renders. */
+export interface WorkspaceRecord {
+  workspaceId: string
+  title: string
+  path: string
+  sessionIds: readonly string[]
+}
+
+/** One session catalog row. Every field is metadata; no message content. */
+export interface SessionRecord {
+  id: string
+  title?: string
+  displayTitle: string
+  cwd?: string
+  /**
+   * Durable origin marker from the Host. Only delegated children carry
+   * `subagent`; a plain fork of a conversation keeps its own identity and has
+   * a `parentId` without this marker, so the two must not be conflated.
+   */
+  origin?: 'subagent'
+  /** Direct parent session: delegation parent, or fork source. */
+  parentId?: string
+  updatedAt: number
+  running: boolean
+  blank?: boolean
+}
+
+export type ArchivedFilter = 'active' | 'all' | 'archived'
+export type SearchScope = 'all' | 'workspaces' | 'sessions'
+export type WorkspaceOrder = 'manual' | 'name' | 'recent'
+export type SessionOrder = 'manual' | 'recent'
+export type WorkspaceGroupBy = 'workspace' | 'workspace-tree' | 'flat'
+/** Visual density of the workspace grid and session rows. */
+export type DisplayDensity = 'compact' | 'comfortable'
+
+/** Heading used when a workspace path has no parent directory. */
+export const ROOT_GROUP_LABEL: string = '根目录'
+
+/**
+ * Versioned key for plugin-owned browser preferences.
+ *
+ * The version suffix is part of the stored contract: bump it only together with
+ * a migration, otherwise existing users silently lose their pins and hidden
+ * workspaces. `schemaVersion` inside the payload is the second guard.
+ */
+export const BROWSER_PREFERENCES_KEY = 'dsh-workspace-browser.preferences.v1'
+
+/** Minimal storage surface, so callers can pass `localStorage` or a fake. */
+export interface BrowserPreferenceStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
+/**
+ * Everything this plugin remembers across sessions and tabs.
+ *
+ * Deliberately limited to display preferences and opaque workspace ids: no
+ * paths, titles, or conversation content are persisted. Unknown fields are
+ * dropped by `parseBrowserPreferences`, so adding a field here requires adding
+ * it to the parser as well.
+ */
+export interface BrowserPreferences {
+  schemaVersion: 1
+  pinnedWorkspaceIds: string[]
+  hiddenWorkspaceIds: string[]
+  groupBy: WorkspaceGroupBy
+  workspaceOrder: WorkspaceOrder
+  sessionOrder: SessionOrder
+  archivedFilter: ArchivedFilter
+  /** Whether delegated (subagent) sessions are listed. Defaults to `false`. */
+  showSubagents: boolean
+  /** Card density. Defaults to `'compact'`. */
+  density: DisplayDensity
+}
+
+/**
+ * Defaults are also the migration target for v1 payloads written before a field
+ * existed, so a missing field must equal the value a fresh install would use.
+ */
+export function defaultBrowserPreferences(): BrowserPreferences {
+  return {
+    schemaVersion: 1,
+    pinnedWorkspaceIds: [],
+    hiddenWorkspaceIds: [],
+    groupBy: 'workspace',
+    workspaceOrder: 'manual',
+    sessionOrder: 'manual',
+    archivedFilter: 'active',
+    showSubagents: false,
+    density: 'compact',
+  }
+}
+
+/** Deduplicate ids and reject malformed entries instead of trusting JSON. */
+function validIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return [...new Set(value.filter((item): item is string => typeof item === 'string' && item.length > 0 && item.length <= 256))]
+}
+
+/**
+ * Parse a stored payload into a complete preference object.
+ *
+ * Unknown or malformed content falls back to defaults as a whole; individual
+ * enum fields fall back field-by-field. This keeps a partially corrupted store
+ * from breaking the panel while never trusting attacker-controlled shapes.
+ */
+export function parseBrowserPreferences(raw: string | null): BrowserPreferences {
+  const defaults = defaultBrowserPreferences()
+  if (!raw) return defaults
+
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults
+    const record = value as Record<string, unknown>
+    if (record.schemaVersion !== 1) return defaults
+    return {
+      schemaVersion: 1,
+      pinnedWorkspaceIds: validIdList(record.pinnedWorkspaceIds),
+      hiddenWorkspaceIds: validIdList(record.hiddenWorkspaceIds),
+      groupBy: record.groupBy === 'workspace-tree' || record.groupBy === 'flat' ? record.groupBy : 'workspace',
+      workspaceOrder: record.workspaceOrder === 'name' || record.workspaceOrder === 'recent' ? record.workspaceOrder : 'manual',
+      sessionOrder: record.sessionOrder === 'recent' ? 'recent' : 'manual',
+      archivedFilter: record.archivedFilter === 'all' || record.archivedFilter === 'archived' ? record.archivedFilter : 'active',
+      showSubagents: record.showSubagents === true,
+      density: record.density === 'comfortable' ? 'comfortable' : 'compact',
+    }
+  } catch {
+    return defaults
+  }
+}
+
+/**
+ * Read a storage object without letting a throwing accessor escape.
+ *
+ * Browsers raise on `window.localStorage` itself when storage is disabled for
+ * the origin, before any `getItem` call happens.
+ */
+export function resolvePreferenceStorage<T>(accessor: () => T | null | undefined): T | undefined {
+  try {
+    return accessor() ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Load preferences, degrading to defaults when storage is missing or throws. */
+export function loadBrowserPreferences(storage: Pick<BrowserPreferenceStorage, 'getItem'> | null | undefined): BrowserPreferences {
+  if (!storage) return defaultBrowserPreferences()
+  try {
+    return parseBrowserPreferences(storage.getItem(BROWSER_PREFERENCES_KEY))
+  } catch {
+    return defaultBrowserPreferences()
+  }
+}
+
+/**
+ * Persist preferences.
+ *
+ * @returns `false` when the write was refused (quota, privacy mode, no storage).
+ *   Callers keep the value in memory so the panel still works for this page.
+ */
+export function saveBrowserPreferences(
+  storage: Pick<BrowserPreferenceStorage, 'setItem'> | null | undefined,
+  preferences: BrowserPreferences,
+): boolean {
+  if (!storage) return false
+  try {
+    storage.setItem(BROWSER_PREFERENCES_KEY, JSON.stringify(preferences))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function normalizeQuery(query: string): string {
+  return query.trim().toLocaleLowerCase()
+}
+
+/** Case-insensitive metadata match; `undefined` fields never match. */
+export function matchesQuery(query: string, ...fields: Array<string | undefined>): boolean {
+  const needle = normalizeQuery(query)
+  if (!needle) return true
+  return fields.some((field) => field?.toLocaleLowerCase().includes(needle) ?? false)
+}
+
+/** Sessions no workspace lists, in catalog order. */
+export function getUngroupedSessionIds(
+  workspaces: readonly WorkspaceRecord[],
+  sessionIds: readonly string[],
+): string[] {
+  const assigned = new Set(workspaces.flatMap((workspace) => workspace.sessionIds))
+  return sessionIds.filter((id) => !assigned.has(id))
+}
+
+/** Options for {@link filterSessionIds}; named so call sites stay readable. */
+export interface SessionFilterOptions {
+  readonly ids: readonly string[]
+  readonly sessionsById: Readonly<Record<string, SessionRecord>>
+  readonly archivedIds: ReadonlySet<string>
+  readonly pinnedIds: ReadonlySet<string>
+  /** Case-insensitive metadata query; empty matches everything. */
+  readonly query?: string
+  readonly archivedFilter?: ArchivedFilter
+  readonly order?: SessionOrder
+  /** When `false` (default), `origin === 'subagent'` rows are omitted. */
+  readonly showSubagents?: boolean
+  /**
+   * Optional session → owning workspace index. When present, a query also
+   * matches the workspace title and path, which is what the global search box
+   * promises. Workspace detail views omit it on purpose: there the query is
+   * scoped to one workspace's sessions.
+   */
+  readonly owners?: ReadonlyMap<string, WorkspaceRecord>
+}
+
+/**
+ * Apply archive, subagent, query, pin and order rules in one place.
+ *
+ * Every list in the panel (workspace cards, detail, flat list, search results,
+ * ungrouped section) goes through this function so the counts and the rows can
+ * never disagree.
+ */
+export function filterSessionIds(options: SessionFilterOptions): string[] {
+  const { ids, sessionsById, archivedIds, pinnedIds } = options
+  const query = options.query ?? ''
+  const archivedFilter = options.archivedFilter ?? 'active'
+  const order = options.order ?? 'manual'
+  const showSubagents = options.showSubagents ?? false
+  const owners = options.owners
+
+  const visible = ids.filter((id) => {
+    const session = sessionsById[id]
+    if (!session) return false
+    if (!showSubagents && session.origin === 'subagent') return false
+    const archived = archivedIds.has(id)
+    if (archivedFilter === 'active' && archived) return false
+    if (archivedFilter === 'archived' && !archived) return false
+    const owner = owners?.get(id)
+    return matchesQuery(query, session.title, session.displayTitle, session.id, owner?.title, owner?.path)
+  })
+
+  const manualOrder = new Map(ids.map((id, index) => [id, index]))
+  visible.sort((a, b) => {
+    const pinDiff = Number(pinnedIds.has(b)) - Number(pinnedIds.has(a))
+    if (pinDiff) return pinDiff
+    if (order === 'recent') {
+      return (sessionsById[b]?.updatedAt ?? 0) - (sessionsById[a]?.updatedAt ?? 0)
+    }
+    return (manualOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (manualOrder.get(b) ?? Number.MAX_SAFE_INTEGER)
+  })
+  return visible
+}
+
+/** Sort by registry order, title, or latest activity inside the workspace. */
+export function sortWorkspaces(
+  workspaces: readonly WorkspaceRecord[],
+  sessionsById: Readonly<Record<string, SessionRecord>>,
+  order: WorkspaceOrder,
+): WorkspaceRecord[] {
+  const result = workspaces.slice()
+  if (order === 'name') {
+    result.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path))
+  } else if (order === 'recent') {
+    const activity = (workspace: WorkspaceRecord) => Math.max(
+      0,
+      ...workspace.sessionIds.map((id) => sessionsById[id]?.updatedAt ?? 0),
+    )
+    result.sort((a, b) => activity(b) - activity(a) || a.title.localeCompare(b.title))
+  }
+  return result
+}
+
+/**
+ * Float pinned workspaces to the top without disturbing the relative order of
+ * either group. `Array.prototype.sort` is stable, so the comparator only needs
+ * to separate the two groups.
+ */
+export function prioritizePinnedWorkspaces(
+  workspaces: readonly WorkspaceRecord[],
+  pinnedWorkspaceIds: ReadonlySet<string>,
+): WorkspaceRecord[] {
+  return workspaces
+    .slice()
+    .sort((a, b) => Number(pinnedWorkspaceIds.has(b.workspaceId)) - Number(pinnedWorkspaceIds.has(a.workspaceId)))
+}
+
+/** One parent-directory group in the `workspace-tree` view. */
+export interface WorkspaceGroup {
+  readonly parent: string
+  readonly workspaces: readonly WorkspaceRecord[]
+}
+
+/** Group by parent directory, preserving first-seen group and member order. */
+export function groupWorkspacesByParent(workspaces: readonly WorkspaceRecord[]): WorkspaceGroup[] {
+  const groups = new Map<string, WorkspaceRecord[]>()
+  for (const workspace of workspaces) {
+    const parent = parentDirectory(workspace.path) || ROOT_GROUP_LABEL
+    const bucket = groups.get(parent)
+    if (bucket) bucket.push(workspace)
+    else groups.set(parent, [workspace])
+  }
+  return [...groups].map(([parent, members]) => ({ parent, workspaces: members }))
+}
+
+/** First workspace listing a session; later duplicates are ignored. */
+export function indexWorkspaceOwners(
+  workspaces: readonly WorkspaceRecord[],
+): ReadonlyMap<string, WorkspaceRecord> {
+  const owners = new Map<string, WorkspaceRecord>()
+  for (const workspace of workspaces) {
+    for (const id of workspace.sessionIds) {
+      if (!owners.has(id)) owners.set(id, workspace)
+    }
+  }
+  return owners
+}
+
+/** Result of resolving stored hidden ids against the registered workspaces. */
+export interface HiddenWorkspaceSplit {
+  /** Registered workspaces that are currently hidden, in display order. */
+  readonly hidden: readonly WorkspaceRecord[]
+  /** Hidden ids with no registered workspace; kept in preferences untouched. */
+  readonly missingCount: number
+}
+
+/**
+ * Split stored hidden ids into what can be restored now and what cannot.
+ *
+ * Stale ids are counted but never rendered as phantom cards, and they stay in
+ * storage: the browser must not silently discard a user's preference just
+ * because a workspace is temporarily unregistered.
+ */
+export function splitHiddenWorkspaces(
+  workspaces: readonly WorkspaceRecord[],
+  hiddenWorkspaceIds: ReadonlySet<string>,
+): HiddenWorkspaceSplit {
+  const hidden = workspaces.filter((workspace) => hiddenWorkspaceIds.has(workspace.workspaceId))
+  const registered = new Set(hidden.map((workspace) => workspace.workspaceId))
+  let missingCount = 0
+  for (const id of hiddenWorkspaceIds) {
+    if (!registered.has(id)) missingCount += 1
+  }
+  return { hidden, missingCount }
+}
+
+/**
+ * Human label for a delegated session's parent.
+ *
+ * Falls back to the raw id when the parent is not in the catalog, which happens
+ * for archived or out-of-window parents.
+ */
+export function parentLabelFor(
+  session: SessionRecord,
+  sessionsById: Readonly<Record<string, SessionRecord>>,
+): string | undefined {
+  if (!session.parentId) return undefined
+  const parent = sessionsById[session.parentId]
+  return parent?.title || parent?.displayTitle || session.parentId
+}
+
+/** Derive a path parent without touching the filesystem. */
+export function parentDirectory(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, '')
+  const index = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
+  return index > 0 ? normalized.slice(0, index) : ''
+}

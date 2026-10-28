@@ -1,0 +1,97 @@
+{
+  "name": "dsh-workspace-browser",
+  "version": "0.1.0",
+  "description": "A workspace-first browser for DSH sessions",
+  "packageManager": "pnpm@12.15.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/client.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/*.d.ts",
+    "LICENSE",
+    "README.md",
+    "README.zh-CN.md",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown && node scripts/wrap-client.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:bundle": "node scripts/check-bundle.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm test:bundle",
+    "check:package": "node scripts/check-package.mjs",
+    "verify": "pnpm check && pnpm check:package",
+    "prepack": "pnpm check"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ],
+      "platform": "web"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.1-rc.4": "compatible"
+      }
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.4",
+    "@types/react": "^18.3.31",
+    "react": "^18.3.1",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.1-rc.4"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "workspace",
+    "sessions"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FFFengMJL/dsh-workspace-browser.git"
+  },
+  "homepage": "https://github.com/FFFengMJL/dsh-workspace-browser#readme",
+  "bugs": {
+    "url": "https://github.com/FFFengMJL/dsh-workspace-browser/issues"
+  }
+}

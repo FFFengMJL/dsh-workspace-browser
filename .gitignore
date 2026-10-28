@@ -1,0 +1,23 @@
+node_modules/
+lib/
+.build/
+.tmp*/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Package and release output: the release workflow rebuilds these from source.
+.release/
+*.tgz
+
+# Local environment overrides and secrets; keep the example template tracked.
+.env
+.env.*
+!.env.example
+*.log
+pnpm-debug.log*
+
+# Editor and OS noise.
+.vscode/
+.idea/
+Thumbs.db

@@ -1,0 +1,143 @@
+name: Release
+
+# Builds the installable tarball from a version tag and attaches it to a draft
+# GitHub Release. DSH installs plugins from an npm name, a git address, or a
+# tarball URL; publishing a tarball keeps npm out of the pipeline and means users
+# never compile this plugin or approve its build scripts.
+#
+# Maintainer flow: bump version in package.json, run `pnpm verify` locally, then
+# push a tag `v<version>` (for example v0.1.0). The run opens a *draft* release;
+# review it and press Publish. Nothing is distributed until that manual step.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+# Never cancel a release halfway: a partially uploaded release is worse than a
+# stale run. Concurrent runs of the same tag serialize.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 12.15.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # A tag that disagrees with the manifest would publish a version nobody
+      # asked for; fail before building anything.
+      - id: version
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package version ${version}"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm verify
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dsh-workspace-browser-package
+          path: |
+            .release/*.tgz
+            .release/*.sha256
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that writes: upload assets to a draft release. The workflow
+    # uses GitHub's built-in token, never an npm credential.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dsh-workspace-browser-package
+          path: release
+
+      # Re-check the checksum of the bytes that are about to be published.
+      - name: Verify checksum
+        working-directory: release
+        run: sha256sum -c ./*.sha256
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(release/*.tgz)
+          checksums=(release/*.sha256)
+          if [ "${#tarballs[@]}" -ne 1 ] || [ "${#checksums[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one tarball and one checksum file"
+            exit 1
+          fi
+          asset=$(basename "${tarballs[0]}")
+          sum=$(basename "${checksums[0]}")
+          url="https://github.com/${REPO}/releases/download/${TAG}/${asset}"
+
+          # Install notes are generated from this run, so the URL cannot drift
+          # from the tag or the artifact name. This body is written into a draft:
+          # GitHub keeps draft assets out of /releases/download/ until the draft
+          # is published, so the notice below has to say so.
+          {
+            echo "DSH workspace browser plugin, version ${VERSION}."
+            echo
+            echo "> This is a draft until you publish it. GitHub does not serve"
+            echo "> \`/releases/download/\` URLs for draft assets, so the commands below"
+            echo "> only work after the release is published."
+            echo
+            echo "Install into a profile (DSH registers the bundle on install; restart the profile afterwards):"
+            echo
+            echo '```sh'
+            echo "dsh plugin --profile web add ${url}"
+            echo '```'
+            echo
+            echo "Optional integrity check before installing:"
+            echo
+            echo '```sh'
+            echo "curl -fLO ${url}"
+            echo "curl -fLO ${url}.sha256"
+            echo "sha256sum -c ${sum}"
+            echo '```'
+            echo
+            echo "Requires DSH 0.2.1-rc.4, the only release this build was verified against. Not published to npm."
+          } > notes.md
+
+          args=(--draft --title "${TAG}" --notes-file notes.md)
+          case "${VERSION}" in
+            *-*) args+=(--prerelease) ;;
+          esac
+
+          # Fails if the release (or an asset with the same name) already exists,
+          # so a re-run never silently overwrites published bytes.
+          gh release create "${TAG}" "${tarballs[0]}" "${checksums[0]}" "${args[@]}"
