@@ -207,6 +207,9 @@ export const styles: string = `
   line-height: 1.2;
   cursor: pointer;
 }
+/* Destructive workspace action: outlined like its neighbours, red on hover. */
+.wb-workspace-controls .wb-danger-link { color: var(--wb-danger); border-color: color-mix(in srgb, var(--wb-danger) 35%, transparent); }
+.wb-workspace-controls .wb-danger-link:hover:not([disabled]) { background: color-mix(in srgb, var(--wb-danger) 12%, transparent); }
 
 /* ---- Workspace tree --------------------------------------------------- */
 .wb-tree-group { margin: 0 0 22px; }
@@ -346,6 +349,8 @@ export const styles: string = `
 .wb-modal-wide { width: min(640px, 100%); }
 .wb-modal h2 { margin: 0 0 8px; font-size: 18px; }
 .wb-modal p { margin: 0 0 4px; color: var(--wb-muted); line-height: 1.55; }
+/* A refusal stays inside the dialog so the typed draft is not lost. */
+.wb-modal .wb-error { margin: 10px 0 0; color: var(--wb-danger); font-size: 13px; }
 .wb-modal-footer {
   display: flex;
   justify-content: flex-end;

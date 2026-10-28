@@ -430,6 +430,37 @@ export function splitHiddenWorkspaces(
 }
 
 /**
+ * Why a proposed workspace title cannot be saved.
+ *
+ * `blank` covers whitespace-only drafts and `duplicate` names another
+ * registered workspace; both are refusals the Host would also produce.
+ */
+export type WorkspaceTitleProblem = 'blank' | 'duplicate'
+
+/**
+ * Pre-check one rename request against the rules the Host enforces.
+ *
+ * Mirrors the Host so the dialog can refuse before a round trip: the title is
+ * trimmed, must not be blank, and must not equal another workspace's title —
+ * exact string equality, case included, because the Host compares titles
+ * verbatim. The workspace being renamed is excluded, so re-saving the current
+ * name (or changing only its case) is allowed. The Host stays authoritative: a
+ * title that passes here can still lose a race with another tab.
+ *
+ * @returns the first problem, or `null` when the title is submittable.
+ */
+export function workspaceTitleProblem(
+  title: string,
+  workspaces: readonly WorkspaceRecord[],
+  workspaceId: string,
+): WorkspaceTitleProblem | null {
+  const trimmed = title.trim()
+  if (!trimmed) return 'blank'
+  const taken = workspaces.some((workspace) => workspace.workspaceId !== workspaceId && workspace.title === trimmed)
+  return taken ? 'duplicate' : null
+}
+
+/**
  * Human label for a delegated session's parent.
  *
  * Falls back to the raw id when the parent is not in the catalog, which happens

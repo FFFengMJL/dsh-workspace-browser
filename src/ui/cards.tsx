@@ -22,6 +22,8 @@ export interface WorkspaceCardProps {
   onTogglePin(): void
   onHide(): void
   onMove(delta: -1 | 1): void
+  onRename(): void
+  onDelete(): void
   onStartSession(): void
 }
 
@@ -34,6 +36,8 @@ export function WorkspaceCard({
   onTogglePin,
   onHide,
   onMove,
+  onRename,
+  onDelete,
   onStartSession,
 }: WorkspaceCardProps): React.JSX.Element {
   return <article className="wb-workspace">
@@ -48,6 +52,8 @@ export function WorkspaceCard({
       <button type="button" disabled={!manualOrder} onClick={() => onMove(-1)} title="手动排序时可上移">↑</button>
       <button type="button" disabled={!manualOrder} onClick={() => onMove(1)} title="手动排序时可下移">↓</button>
       <button type="button" onClick={onStartSession}>新会话</button>
+      <button type="button" onClick={onRename} title="重命名工作区">重命名</button>
+      <button className="wb-danger-link" type="button" onClick={onDelete} title="删除工作区注册；文件夹与会话记录会保留">删除</button>
     </div>
   </article>
 }

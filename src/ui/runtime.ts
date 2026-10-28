@@ -95,6 +95,29 @@ export function readSessionSelection(
 }
 
 /**
+ * User-facing text for a rejected Workspace command.
+ *
+ * The client service funnels every Host refusal through `commandError`, which
+ * flattens the structured `RemoteFailure` into
+ * `workspace <operation> failed: <code>: <message>`. The code survives only in
+ * that string, so it is recovered from there; an unrecognized shape falls back
+ * to the Host text instead of inventing a reason. The dialog pre-checks the two
+ * avoidable refusals (blank and duplicate titles) so this is the rare path: a
+ * lost race, or a workspace removed in another tab.
+ */
+const WORKSPACE_FAILURE_TEXT: Readonly<Record<string, string>> = {
+  'workspace/name-conflict': '该名称已被其他工作区使用，请换一个。',
+  'gateway/bad-request': '工作区名称不能为空。',
+  'workspace/not-found': '该工作区已不存在，可能已在其他地方被删除。',
+}
+
+export function workspaceFailureMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const code = /^workspace [a-z ]+ failed: ([^:\s]+):/.exec(raw)?.[1]
+  return (code !== undefined ? WORKSPACE_FAILURE_TEXT[code] : undefined) ?? raw
+}
+
+/**
  * Navigation and session actions owned by the workspace UI service.
  *
  * These are the plugin's only mutations of DSH state; they call public client
@@ -113,9 +136,13 @@ export interface WorkspaceActions {
   forkSession(sessionId: string): Promise<string>
 }
 
-/** Registry-order mutation used by the manual workspace sort buttons. */
-export interface WorkspaceOrderActions {
+/** Registry mutations: manual order plus the workspace's own registration. */
+export interface WorkspaceRegistryActions {
   insertBefore(workspaceId: string, beforeWorkspaceId?: string): Promise<void>
+  /** Rename through the public client service; throws a user-facing error on refusal. */
+  rename(workspaceId: string, title: string): Promise<void>
+  /** Remove the registration only; DSH keeps the directory and every session log. */
+  delete(workspaceId: string): Promise<void>
 }
 
 /** The host context surface this plugin actually touches. */
@@ -127,6 +154,9 @@ export interface PluginRuntime {
   workspaces: {
     list: Source<WorkspaceCatalogSnapshot>
     insertBefore(workspaceId: string, beforeWorkspaceId?: string): Promise<void>
+    /** Return value is unused: the client service merges the row itself. */
+    rename(workspaceId: string, title: string): Promise<unknown>
+    delete(workspaceId: string): Promise<void>
   }
   sessions: {
     list: Source<SessionCatalogSnapshot>
@@ -148,7 +178,7 @@ export interface BrowserServices {
   readonly workspaces: Source<WorkspaceCatalogSnapshot>
   readonly sessions: Source<SessionCatalogSnapshot>
   readonly uiWorkspace: WorkspaceActions
-  readonly workspaceController: WorkspaceOrderActions
+  readonly workspaceController: WorkspaceRegistryActions
   /** Rename through the public remote; throws a user-facing error on refusal. */
   renameSession(sessionId: string, title: string): Promise<void>
 }
@@ -166,6 +196,20 @@ export function createBrowserServices(runtime: PluginRuntime): BrowserServices {
     uiWorkspace: runtime.uiWorkspace,
     workspaceController: {
       insertBefore: (workspaceId, beforeWorkspaceId) => runtime.workspaces.insertBefore(workspaceId, beforeWorkspaceId),
+      rename: async (workspaceId, title) => {
+        try {
+          await runtime.workspaces.rename(workspaceId, title)
+        } catch (error) {
+          throw new Error(workspaceFailureMessage(error), { cause: error })
+        }
+      },
+      delete: async (workspaceId) => {
+        try {
+          await runtime.workspaces.delete(workspaceId)
+        } catch (error) {
+          throw new Error(workspaceFailureMessage(error), { cause: error })
+        }
+      },
     },
     renameSession: async (sessionId, title) => {
       // The remote reports business refusals in the result envelope instead of

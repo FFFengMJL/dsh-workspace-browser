@@ -21,6 +21,7 @@ import {
   prioritizePinnedWorkspaces,
   sortWorkspaces,
   splitHiddenWorkspaces,
+  workspaceTitleProblem,
   type ArchivedFilter,
   type SearchScope,
   type SessionOrder,
@@ -29,9 +30,9 @@ import {
   type WorkspaceRecord,
 } from '../logic.js'
 import { SessionRow, WorkspaceCard, type SessionAction } from './cards.js'
-import { ArchiveConfirmDialog, HiddenWorkspacesDialog, RenameDialog } from './dialogs.js'
+import { ArchiveConfirmDialog, DeleteWorkspaceDialog, HiddenWorkspacesDialog, RenameDialog, WorkspaceRenameDialog } from './dialogs.js'
 import { useBrowserPreferences } from './preferences.js'
-import { readSessionSelection, useSource, type BrowserServices, type HostSessionRow } from './runtime.js'
+import { readSessionSelection, useSource, workspaceFailureMessage, type BrowserServices, type HostSessionRow } from './runtime.js'
 import { styles } from './styles.js'
 
 /** Session rows rendered before the "load more" control appears. */
@@ -89,6 +90,13 @@ export function WorkspaceBrowser({
   const [renameTarget, setRenameTarget] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [hiddenDialogOpen, setHiddenDialogOpen] = useState(false)
+  // Workspace registration mutations. Only one of the two dialogs is open at a
+  // time, so they share one busy/error pair instead of four state slots.
+  const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<string | null>(null)
+  const [workspaceRenameValue, setWorkspaceRenameValue] = useState('')
+  const [workspaceDelete, setWorkspaceDelete] = useState<{ workspaceId: string; title: string } | null>(null)
+  const [workspaceDialogBusy, setWorkspaceDialogBusy] = useState(false)
+  const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null)
 
   const workspaces = workspaceSnapshot?.items ?? EMPTY_WORKSPACES
   const sessionsById = sessionSnapshot?.byId ?? EMPTY_SESSIONS
@@ -165,6 +173,15 @@ export function WorkspaceBrowser({
 
   const details = workspaces.find((workspace) => workspace.workspaceId === view.workspaceId)
   const detailRows = details ? sessionRows(details.sessionIds) : []
+
+  // Mirrors the Host's rename rules so a doomed save never leaves the dialog.
+  // A blank draft just disables Save; only a taken name needs explaining.
+  const workspaceRenameProblem = workspaceRenameTarget
+    ? workspaceTitleProblem(workspaceRenameValue, workspaces, workspaceRenameTarget)
+    : null
+  const workspaceRenameError = workspaceRenameProblem === 'duplicate'
+    ? '该名称已被其他工作区使用，请换一个。'
+    : workspaceDialogError
 
   /**
    * Session rows for the global views. The owner index is passed here (and not
@@ -303,6 +320,55 @@ export function WorkspaceBrowser({
     }
   }
 
+  const beginWorkspaceRename = (workspace: WorkspaceRecord) => {
+    setWorkspaceRenameTarget(workspace.workspaceId)
+    setWorkspaceRenameValue(workspace.title)
+    setWorkspaceDialogError(null)
+  }
+
+  const confirmWorkspaceRename = async () => {
+    const target = workspaceRenameTarget
+    // Save is disabled for both problems; the guard keeps a stale render from
+    // sending a request the Host would refuse anyway.
+    if (!target || workspaceTitleProblem(workspaceRenameValue, workspaces, target) !== null) return
+    setWorkspaceDialogBusy(true)
+    setWorkspaceDialogError(null)
+    try {
+      await workspaceController.rename(target, workspaceRenameValue.trim())
+      setWorkspaceRenameTarget(null)
+      setNotice({ text: '工作区名称已更新。' })
+    } catch (error) {
+      setWorkspaceDialogError(workspaceFailureMessage(error))
+    } finally {
+      setWorkspaceDialogBusy(false)
+    }
+  }
+
+  const confirmWorkspaceDelete = async () => {
+    const target = workspaceDelete
+    if (!target) return
+    setWorkspaceDialogBusy(true)
+    setWorkspaceDialogError(null)
+    try {
+      await workspaceController.delete(target.workspaceId)
+      setWorkspaceDelete(null)
+      // The registration is gone, so a pin or hidden entry for it would only
+      // be a stale id from here on. The Host keeps the folder and every log.
+      if (preferences.pinnedWorkspaceIds.includes(target.workspaceId) || preferences.hiddenWorkspaceIds.includes(target.workspaceId)) {
+        updatePreferences({
+          pinnedWorkspaceIds: preferences.pinnedWorkspaceIds.filter((id) => id !== target.workspaceId),
+          hiddenWorkspaceIds: preferences.hiddenWorkspaceIds.filter((id) => id !== target.workspaceId),
+        })
+      }
+      if (view.workspaceId === target.workspaceId) commitView({ workspaceId: null, scrollY: 0 })
+      setNotice({ text: `已删除工作区「${target.title}」。文件夹与会话记录已保留。` })
+    } catch (error) {
+      setWorkspaceDialogError(workspaceFailureMessage(error))
+    } finally {
+      setWorkspaceDialogBusy(false)
+    }
+  }
+
   const toggleWorkspacePin = (id: string) => {
     const next = new Set(preferences.pinnedWorkspaceIds)
     if (next.has(id)) next.delete(id)
@@ -367,6 +433,11 @@ export function WorkspaceBrowser({
     onTogglePin={() => toggleWorkspacePin(workspace.workspaceId)}
     onHide={() => toggleWorkspaceHidden(workspace.workspaceId)}
     onMove={(delta) => void moveWorkspace(workspace.workspaceId, delta)}
+    onRename={() => beginWorkspaceRename(workspace)}
+    onDelete={() => {
+      setWorkspaceDelete({ workspaceId: workspace.workspaceId, title: workspace.title })
+      setWorkspaceDialogError(null)
+    }}
     onStartSession={() => startSession(workspace.workspaceId)}
   />
 
@@ -543,6 +614,22 @@ export function WorkspaceBrowser({
       onRestore={restoreHiddenWorkspaces}
       onRestoreAll={() => restoreHiddenWorkspaces(hiddenSplit.hidden.map((workspace) => workspace.workspaceId))}
       onClose={() => setHiddenDialogOpen(false)}
+    />}
+    {workspaceRenameTarget && <WorkspaceRenameDialog
+      value={workspaceRenameValue}
+      busy={workspaceDialogBusy}
+      invalid={workspaceRenameProblem !== null}
+      error={workspaceRenameError}
+      onChange={(value) => { setWorkspaceRenameValue(value); setWorkspaceDialogError(null) }}
+      onConfirm={() => void confirmWorkspaceRename()}
+      onClose={() => { setWorkspaceRenameTarget(null); setWorkspaceDialogError(null) }}
+    />}
+    {workspaceDelete && <DeleteWorkspaceDialog
+      workspaceTitle={workspaceDelete.title}
+      busy={workspaceDialogBusy}
+      error={workspaceDialogError}
+      onConfirm={() => void confirmWorkspaceDelete()}
+      onClose={() => { setWorkspaceDelete(null); setWorkspaceDialogError(null) }}
     />}
 
     <footer className="wb-container wb-footer">数据来自 DSH 工作区与会话目录快照；打开会话时才切换到原生对话页。</footer>

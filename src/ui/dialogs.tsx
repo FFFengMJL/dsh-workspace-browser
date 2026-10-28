@@ -110,30 +110,93 @@ export function ArchiveConfirmDialog({ busy, onConfirm, onClose }: ArchiveConfir
 export interface RenameDialogProps {
   value: string
   busy: boolean
+  /** Blocks saving for a locally detectable refusal, without showing a message. */
+  invalid?: boolean
+  /** Inline refusal shown beside the field; the draft stays editable. */
+  error?: string | null
   onChange(value: string): void
   onConfirm(): void
   onClose(): void
 }
 
-/** Rename through the public session remote; the Host owns the stored title. */
-export function RenameDialog({ value, busy, onChange, onConfirm, onClose }: RenameDialogProps): React.JSX.Element {
-  const canSave = Boolean(value.trim()) && !busy
+interface TitleFormProps extends RenameDialogProps {
+  titleId: string
+  title: string
+  label: string
+}
+
+/**
+ * One-field title form shared by the session and workspace renames.
+ *
+ * The dialog stays open while a refusal is displayed so the typed title is not
+ * lost; only an explicit save clears `error` in the parent.
+ */
+function TitleFormDialog({ titleId, title, label, value, busy, invalid = false, error, onChange, onConfirm, onClose }: TitleFormProps): React.JSX.Element {
+  const canSave = Boolean(value.trim()) && !busy && !invalid
   return <Dialog
-    titleId="wb-rename-title"
-    title="重命名会话"
-    onClose={onClose}
+    titleId={titleId}
+    title={title}
+    onClose={busy ? () => {} : onClose}
     footer={<>
-      <button type="button" onClick={onClose}>取消</button>
+      <button type="button" disabled={busy} onClick={onClose}>取消</button>
       <button className="wb-primary" type="button" disabled={!canSave} onClick={onConfirm}>保存</button>
     </>}
   >
-    <label className="wb-field">新标题
+    <label className="wb-field">{label}
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Enter' && canSave) onConfirm() }}
       />
     </label>
+    {error && <p className="wb-error" role="alert">{error}</p>}
+  </Dialog>
+}
+
+/** Rename through the public session remote; the Host owns the stored title. */
+export function RenameDialog(props: RenameDialogProps): React.JSX.Element {
+  return <TitleFormDialog titleId="wb-rename-title" title="重命名会话" label="新标题" {...props} />
+}
+
+/** Rename through the public workspace client service; the Host owns the title. */
+export function WorkspaceRenameDialog(props: RenameDialogProps): React.JSX.Element {
+  return <TitleFormDialog titleId="wb-workspace-rename-title" title="重命名工作区" label="工作区名称" {...props} />
+}
+
+export interface DeleteWorkspaceDialogProps {
+  /** Title of the workspace being removed. */
+  workspaceTitle: string
+  busy: boolean
+  error?: string | null
+  onConfirm(): void
+  onClose(): void
+}
+
+/**
+ * Confirm removing one workspace registration.
+ *
+ * Wording mirrors the native sidebar: the folder and every session log stay on
+ * disk, and the workspace's sessions reappear under Ungrouped. Nothing is
+ * deleted, so one explicit confirmation is enough — no typed-name gate.
+ */
+export function DeleteWorkspaceDialog({
+  workspaceTitle,
+  busy,
+  error,
+  onConfirm,
+  onClose,
+}: DeleteWorkspaceDialogProps): React.JSX.Element {
+  return <Dialog
+    titleId="wb-delete-workspace-title"
+    title="删除工作区？"
+    description={`将把「${workspaceTitle}」从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在「未分组」下。`}
+    onClose={busy ? () => {} : onClose}
+    footer={<>
+      <button type="button" disabled={busy} onClick={onClose}>取消</button>
+      <button className="wb-danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? '正在删除…' : '删除工作区'}</button>
+    </>}
+  >
+    {error && <p className="wb-error" role="alert">{error}</p>}
   </Dialog>
 }
 

@@ -16,6 +16,7 @@
 - 紧凑（默认）与标准两档显示密度，同时作用于工作区卡片和会话行。
 - 隐藏工作区支持选择性恢复：可筛选列表、逐项恢复、恢复勾选项，或恢复全部。
 - 会话最近／手动顺序、归档筛选、原生会话置顶、重命名、归档与恢复、fork、复制 ID、新会话。
+- 工作区重命名与删除：走 DSH 公开的工作区服务；删除只移除注册，文件夹与会话记录保留，会话回到“未分组”。
 - 自适应布局、键盘焦点样式、中文界面；打开会话只切换到 DSH 原生对话页，不由本插件逐条加载历史。
 
 ## 安装
@@ -25,7 +26,7 @@
 ### 从 Release 压缩包安装（推荐）
 
 1. 打开一个**已发布**的 Release，复制其 `.tgz` 附件地址，例如
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.1/dsh-workspace-browser-0.1.1.tgz`。
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.2/dsh-workspace-browser-0.1.2.tgz`。
    草稿状态的 Release 不提供可下载附件，发布后该地址才会生效。
 2. 安装到运行 Web 界面的 profile：
 
@@ -45,8 +46,8 @@ DSH 支持用 npm 包名、git 地址或压缩包地址安装插件。本项目�
 ```sh
 curl -fLO <压缩包地址>
 curl -fLO <压缩包地址>.sha256
-sha256sum -c dsh-workspace-browser-0.1.1.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.1.tgz"
+sha256sum -c dsh-workspace-browser-0.1.2.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.2.tgz"
 ```
 
 ### 从本地源码安装（开发用）
@@ -65,9 +66,9 @@ dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.1.tgz"
 - 分组、排序、归档筛选、显示密度、子代理可见性与工作区 pin／隐藏保存在插件自有版本化浏览器键 `dsh-workspace-browser.preferences.v1`；同源标签页通过 `storage` 事件同步。它们不与原生侧栏或其他浏览器配置同步。若浏览器存储不可用，偏好仅在当前内存中生效。搜索、详情页和滚动位置仍是临时状态。
 - 重命名通过公开 `ctx.remote.session.rename`；本插件不改写会话日志。活跃会话归档会先显示确认框，再通过原生工作区服务请求停止并归档；DSH 仍负责最终执行与拒绝处理。
 - fork 成功后可从提示条打开新会话；不自动切换会话。
-- 添加工作区继续使用 DSH 原生侧栏流程。删除工作区、物理删除／迁移会话、旧工作区归属修复均不在插件范围内。
+- 添加工作区继续使用 DSH 原生侧栏流程；重命名与删除可直接在面板内完成。删除只移除工作区注册，不删文件夹与会话记录，其会话随后显示在“未分组”下。物理删除／迁移会话、旧工作区归属修复仍不在插件范围内。
 
-工作区置顶和隐藏是插件自己的浏览器偏好；它们不改变原生工作区顺序、注册或会话归属。卸载插件不会清除此插件的浏览器偏好键。会话置顶、归档和工作区手动顺序则通过 DSH 原生公开服务写入。
+工作区置顶和隐藏是插件自己的浏览器偏好；它们不改变原生工作区顺序、注册或会话归属。卸载插件不会清除此插件的浏览器偏好键。会话置顶、归档，以及工作区手动顺序、重命名与删除则通过 DSH 原生公开服务写入。
 
 隐藏项对应的工作区若已不在注册表中，会单独计数、不渲染为卡片，但仍保留在偏好里，避免静默丢弃用户的隐藏选择。
 
@@ -84,7 +85,7 @@ pnpm verify     # 类型检查、测试、构建、loader 冒烟，再打包并�
 
 `pnpm check:package` 会把发布压缩包写入 `.release/`（已被 git 忽略），解包后校验 DSH 读取的清单字段、精确的文件集合、解包目录中的 loader 契约、是否夹带开发路径或秘密，并生成 SHA-256 校验文件。`pnpm pack` 通过 `prepack` 先跑 `pnpm check`，因此不会从没验证过的构建产出压缩包。
 
-测试覆盖搜索、归属推导、归档与子代理筛选、排序、置顶优先级、隐藏项拆分、路径分组、偏好迁移，以及 10,000 条合成目录元数据。测试不读取本机 DSH 会话正文或生产数据。
+测试覆盖搜索、归属推导、归档与子代理筛选、排序、置顶优先级、隐藏项拆分、路径分组、工作区名称预校验、宿主错误文案、偏好迁移，以及 10,000 条合成目录元数据。测试不读取本机 DSH 会话正文或生产数据。
 
 ### 源码职责
 
@@ -94,7 +95,7 @@ pnpm verify     # 类型检查、测试、构建、loader 冒烟，再打包并�
 | `src/ui/runtime.ts` | 窄服务端口与快照订阅 hook；不直接调用 Cordis。 |
 | `src/ui/WorkspaceBrowser.tsx` | 面板状态、列表派生、DSH 动作接线。 |
 | `src/ui/cards.tsx` | 纯展示的工作区卡片与会话行。 |
-| `src/ui/dialogs.tsx` | 可访问的弹窗外壳、归档/重命名确认、隐藏工作区管理。 |
+| `src/ui/dialogs.tsx` | 可访问的弹窗外壳、归档/重命名/删除确认、隐藏工作区管理。 |
 | `src/ui/preferences.ts` | 偏好的读取、持久化与跨标签页同步。 |
 | `src/ui/styles.ts` | 单份注入样式表；密度由 CSS 变量表达。 |
 | `src/logic.ts` | 无 React 的数据规则（筛选、排序、分组、偏好解析），并有单元测试覆盖。 |

@@ -20,6 +20,7 @@ import {
   sessionRowTitle,
   sortWorkspaces,
   splitHiddenWorkspaces,
+  workspaceTitleProblem,
   type SessionFilterOptions,
   type SessionRecord,
   type SessionSelection,
@@ -224,6 +225,20 @@ describe('workspace/session browser logic', () => {
     expect(split.missingCount).toBe(1)
     expect(splitHiddenWorkspaces(workspaces, new Set(['w1', 'w2'])).missingCount).toBe(0)
     expect(splitHiddenWorkspaces(workspaces, new Set(['gone'])).hidden).toEqual([])
+  })
+
+  it('pre-checks workspace titles with the Host rules', () => {
+    // Blank after trimming is refused before any round trip.
+    expect(workspaceTitleProblem('   ', workspaces, 'w1')).toBe('blank')
+    expect(workspaceTitleProblem('', workspaces, 'w1')).toBe('blank')
+    // Another workspace's exact title is taken; the Host compares verbatim, so
+    // a case-only difference is a different title.
+    expect(workspaceTitleProblem('Beta', workspaces, 'w1')).toBe('duplicate')
+    expect(workspaceTitleProblem('beta', workspaces, 'w1')).toBeNull()
+    // Re-saving one's own title, trimmed or not, names no other workspace.
+    expect(workspaceTitleProblem('Alpha', workspaces, 'w1')).toBeNull()
+    expect(workspaceTitleProblem('  Alpha  ', workspaces, 'w1')).toBeNull()
+    expect(workspaceTitleProblem(' Gamma ', workspaces, 'w1')).toBeNull()
   })
 
   it('resolves a delegated session parent label without reading content', () => {

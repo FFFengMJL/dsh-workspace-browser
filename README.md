@@ -16,6 +16,7 @@ The bulk of this plugin's implementation, its refactors, and the related documen
 - Compact (default) and comfortable density for the workspace grid and session rows.
 - Selective restore for hidden workspaces: search the list, restore individual entries, restore a checked subset, or restore everything.
 - Session manual/recent ordering, archive filters, native pin/rename/archive/restore, fork, copy ID, and new-session actions.
+- Workspace rename and delete through DSH's public workspace service; deleting removes only the registration, keeps the folder and session logs, and returns those sessions to Ungrouped.
 - Responsive layout, visible keyboard focus, and no per-session history loading from the browser.
 
 ## Install
@@ -25,7 +26,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.1/dsh-workspace-browser-0.1.1.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.2/dsh-workspace-browser-0.1.2.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -45,8 +46,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.1.1.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.1.tgz"
+sha256sum -c dsh-workspace-browser-0.1.2.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.2.tgz"
 ```
 
 ### From a local checkout (development)
@@ -65,9 +66,9 @@ The only verified target is DSH `0.2.1-rc.4`; that is what `dsh.compatibility` i
 - Grouping, ordering, archive filter, density, subagent visibility, and workspace pin/hide preferences persist under the plugin-owned versioned browser key `dsh-workspace-browser.preferences.v1` and synchronize across same-origin tabs via `storage` events. They do not sync with the native sidebar or other browser profiles. If browser storage is unavailable, preferences remain in memory for the current page only. Search, detail view, and scroll position remain transient.
 - Rename uses the public `ctx.remote.session.rename` endpoint without rewriting session logs. Archiving a running session requires an in-page confirmation and then requests stop-and-archive through the native workspace service.
 - Forking does not navigate automatically; the result notice offers an explicit open action.
-- Workspace creation remains in the native sidebar. Workspace deletion, session deletion/migration, and repair of old session ownership are out of scope.
+- Workspace creation remains in the native sidebar; rename and delete are available in the panel. Deleting removes only the registration — the folder and session logs stay, and those sessions appear under "Ungrouped". Session deletion/migration and repair of old session ownership remain out of scope.
 
-Workspace pin/hide markers are plugin-owned browser preferences. They do not change native order, registration, or session ownership. Uninstalling the plugin does not clear its browser preference key. Session pin/archive and workspace reorder actions use DSH public services.
+Workspace pin/hide markers are plugin-owned browser preferences. They do not change native order, registration, or session ownership. Uninstalling the plugin does not clear its browser preference key. Session pin/archive and workspace reorder/rename/delete actions use DSH public services.
 
 Hidden workspace ids whose workspace is no longer registered are counted separately and never rendered as phantom cards; they stay in storage so a user preference is not silently dropped.
 
@@ -84,7 +85,7 @@ Individual steps: `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm test:bundle
 
 `pnpm check:package` writes the release tarball to `.release/` (git-ignored), unpacks it, and asserts the manifest DSH reads, the exact file set, the loader contract inside the unpacked package, no development paths or secrets, and a SHA-256 checksum. `pnpm pack` runs `pnpm check` through `prepack`, so a tarball is never produced from an unverified build.
 
-Tests cover metadata search, membership derivation, archive and subagent filtering, ordering, pin priority, hidden-workspace splitting, parent-path grouping, preference migration, and synthetic 10,000-session catalogs. They do not inspect local DSH session bodies or production data.
+Tests cover metadata search, membership derivation, archive and subagent filtering, ordering, pin priority, hidden-workspace splitting, parent-path grouping, workspace-title pre-checks, Host failure text, preference migration, and synthetic 10,000-session catalogs. They do not inspect local DSH session bodies or production data.
 
 ### Source layout
 
@@ -94,7 +95,7 @@ Tests cover metadata search, membership derivation, archive and subagent filteri
 | `src/ui/runtime.ts` | Narrow service ports and the snapshot subscription hook; no Cordis calls. |
 | `src/ui/WorkspaceBrowser.tsx` | Panel state, derived lists, DSH action wiring. |
 | `src/ui/cards.tsx` | Presentational workspace card and session row. |
-| `src/ui/dialogs.tsx` | Accessible modal shell, archive/rename confirmations, hidden-workspace manager. |
+| `src/ui/dialogs.tsx` | Accessible modal shell, archive/rename/delete confirmations, hidden-workspace manager. |
 | `src/ui/preferences.ts` | Preference loading, persistence, and cross-tab sync. |
 | `src/ui/styles.ts` | Single injected stylesheet; density lives in CSS custom properties. |
 | `src/logic.ts` | React-free data rules (filter, sort, group, preference parsing) covered by tests. |

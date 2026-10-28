@@ -8,7 +8,7 @@
  * blank sessions or hide the one the user is typing in.
  */
 import { describe, expect, it } from 'vitest'
-import { readSessionSelection, type HostSessionRow } from '../src/ui/runtime.js'
+import { readSessionSelection, workspaceFailureMessage, type HostSessionRow } from '../src/ui/runtime.js'
 
 const row = (id: string, overrides: Partial<HostSessionRow> = {}): HostSessionRow => ({
   id,
@@ -90,5 +90,25 @@ describe('host session adapter', () => {
     const after = { a: row('a', { retainedBy: {} }), b: row('b', { retainedBy: { mainView: 1 } }) }
     expect(readSessionSelection(['a', 'b'], before).currentSessionId).toBe('a')
     expect(readSessionSelection(['a', 'b'], after).currentSessionId).toBe('b')
+  })
+})
+
+describe('workspace command failures', () => {
+  it('names the refusals the Host can still produce', () => {
+    expect(workspaceFailureMessage(new Error("workspace rename failed: workspace/name-conflict: Workspace name 'Beta' is already in use")))
+      .toBe('该名称已被其他工作区使用，请换一个。')
+    expect(workspaceFailureMessage(new Error('workspace rename failed: gateway/bad-request: Workspace rename requires a non-blank title')))
+      .toBe('工作区名称不能为空。')
+    expect(workspaceFailureMessage(new Error('workspace delete failed: workspace/not-found: Workspace "w1" not found')))
+      .toBe('该工作区已不存在，可能已在其他地方被删除。')
+  })
+
+  it('passes through anything it cannot classify', () => {
+    // The client service flattens the structured failure into this string, so an
+    // unknown code or a transport error must reach the user verbatim instead of
+    // being reported as one of the known refusals.
+    expect(workspaceFailureMessage(new Error('transport closed'))).toBe('transport closed')
+    expect(workspaceFailureMessage(new Error('workspace rename failed: gateway/timeout: slow'))).toBe('workspace rename failed: gateway/timeout: slow')
+    expect(workspaceFailureMessage('plain')).toBe('plain')
   })
 })
