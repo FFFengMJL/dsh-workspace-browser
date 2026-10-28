@@ -54,6 +54,24 @@ describe('preference write merge', () => {
     expect(JSON.parse(store.get(BROWSER_PREFERENCES_KEY) ?? '{}').showSubagents).toBe(true)
   })
 
+  it('resolves function patches from the latest cross-tab state', () => {
+    const store = new Map<string, string>()
+    store.set(BROWSER_PREFERENCES_KEY, stored({
+      hiddenWorkspaceIds: ['w1', 'w2'],
+      showSubagents: true,
+    }))
+    fakeBrowser(store)
+    // The chooser may have remained open while the cached page state was stale.
+    publishBrowserPreferences({ ...defaultBrowserPreferences(), hiddenWorkspaceIds: ['w1'] })
+
+    const next = updateBrowserPreferences((latest) => ({
+      hiddenWorkspaceIds: latest.hiddenWorkspaceIds.filter((id) => id !== 'w1'),
+    }))
+    expect(next.hiddenWorkspaceIds).toEqual(['w2'])
+    expect(next.showSubagents).toBe(true)
+    expect(JSON.parse(store.get(BROWSER_PREFERENCES_KEY) ?? '{}').hiddenWorkspaceIds).toEqual(['w2'])
+  })
+
   it('keeps this page\'s in-memory state when the write is refused', () => {
     const store = new Map<string, string>()
     // Storage still has the old value, and refuses new writes.

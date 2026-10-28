@@ -1,7 +1,7 @@
 /**
  * One-shot intents between the compact sidebar entry and the panel.
  *
- * The sidebar can ask the panel to open the add-workspace dialog, but the two
+ * The sidebar can ask the panel to start the add-workspace picker, but the two
  * are separate registrations: the panel is mounted asynchronously by the
  * layout service, so a request made just before its mount must survive until
  * the panel subscribes. A listener-less request is therefore held as pending
@@ -12,7 +12,7 @@ type IntentListener = () => void
 let pendingAddWorkspace = false
 const addWorkspaceListeners = new Set<IntentListener>()
 
-/** Ask the panel to open its add-workspace dialog as soon as it can. */
+/** Ask the panel to start the add-workspace picker as soon as it can. */
 export function requestAddWorkspace(): void {
   if (addWorkspaceListeners.size === 0) {
     pendingAddWorkspace = true

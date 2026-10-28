@@ -94,6 +94,7 @@ const runtime = {
     list: { getSnapshot: () => ({ ids: [], byId: {} }), subscribe: () => () => {} },
   },
   uiWorkspace: {
+    pickDirectory: async () => '/srv/picked',
     openSession() {},
     startSession() {},
     archiveSession: async () => {},
@@ -183,6 +184,8 @@ await assert.rejects(() => services.renameSession('session-1', 'title'), /denied
 const created = await services.workspaceController.create('/srv/app')
 assert.equal(created.workspaceId, 'w1')
 assert.equal(created.path, '/srv/app')
+const pickedPath = await services.uiWorkspace.pickDirectory()
+assert.equal(pickedPath, '/srv/picked')
 const listing = await services.uiWorkspace.listDirectory('/srv', new AbortController().signal)
 assert.equal(listing.path, '/srv')
 

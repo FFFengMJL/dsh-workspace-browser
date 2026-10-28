@@ -10,7 +10,7 @@ The bulk of this plugin's implementation, its refactors, and the related documen
 
 - Workspace grid and detail view, with registry/name/recent-activity ordering and native workspace reordering.
 - Workspace cards keep only pin, new session, and a "more" control on the card (icon buttons, one line); hide, rename, move up/down, and delete live in an overflow menu with keyboard, Escape, and outside-click handling.
-- Add workspace from the panel: type an existing absolute directory on the DSH host, or browse host directories when the Host composes the in-app directory backend; repeat paths resolve to the existing workspace.
+- Add workspace from the panel through DSH's native directory chooser; the selected existing host directory is registered through DSH's public workspace service. If native picking fails, retry or use the manual path/in-app browse fallback; repeat paths resolve to the existing workspace.
 - Optional "simplify native session tree": off by default; when on, a compact entry replaces DSH's native workspace/session area. Its "Opened sessions" list records sessions only when actually entered, groups them by current workspace, preserves manual-entry order, and persists locally; removing a shortcut never closes or deletes the session. Turning it off (or unloading the plugin) restores the native tree.
 - Metadata search across workspace names/paths and session titles/IDs, with all/workspace/session scopes. A compact toolbar separates search and sorting from expandable filters and plugin settings.
 - Workspace, parent-directory grouping, and flat-session views; ungrouped sessions are shown without scanning disk or changing ownership.
@@ -29,7 +29,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.3/dsh-workspace-browser-0.1.3.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.4/dsh-workspace-browser-0.1.4.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -49,8 +49,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.1.3.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.3.tgz"
+sha256sum -c dsh-workspace-browser-0.1.4.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.4.tgz"
 ```
 
 ### From a local checkout (development)
@@ -69,7 +69,7 @@ The only verified target is DSH `0.2.1-rc.4`; that is what `dsh.compatibility` i
 - Grouping, ordering, archive filter, subagent visibility, workspace pin/hide, and the simplified-sidebar preference persist under the plugin-owned versioned browser key `dsh-workspace-browser.preferences.v1`; opened-session IDs have a separate key, `dsh-workspace-browser.opened-sessions.v1`. Neither stores session titles, paths, or bodies. Same-origin tabs synchronize through local and storage events, with an unavoidable narrow last-writer race because localStorage does not offer transactional read-modify-write; writes refused by the browser fall back to in-memory state. The preference schema remains unchanged; an old saved density field is ignored while every other preference is preserved. Search, detail view, filter expansion, and scroll position remain transient.
 - Rename uses the public `ctx.remote.session.rename` endpoint without rewriting session logs. Archiving a running session requires an in-page confirmation and then requests stop-and-archive through the native workspace service.
 - Forking does not navigate automatically; the result notice offers an explicit open action.
-- Workspace creation goes through the public `workspaces.create({ path })`: the path must be an existing directory on the DSH host, and canonicalization, existence, permissions, and repeat-path reuse are Host decisions. The plugin does not create directories or scan disk. In-app browsing calls `uiWorkspace.listDirectory`; a Host composed with the native picker only reports that browsing is unavailable, and the path field remains usable. Session deletion/migration and repair of old session ownership remain out of scope.
+- Adding a workspace first calls DSH's public `uiWorkspace.pickDirectory()` native chooser, then registers the selected path through `workspaces.create({ path })`. The chooser opens on the DSH host display (not necessarily the remote browser's computer) and depends on the host's configured picker backend and desktop environment. Cancellation has no effect. If picking fails, the plugin surfaces the error and offers retry plus manual path entry/in-app browsing via `uiWorkspace.listDirectory`; that browsing remains available only when supported by the Host composition. The path must be an existing host directory; canonicalization, existence, permissions, and repeat-path reuse remain Host decisions. The plugin does not create directories or scan disk. Session deletion/migration and repair of old session ownership remain out of scope.
 - "Simplify native session tree" shadows the whole native workspace/session area (header, search, list, and its dialogs) through a lower-priority `sidebar.workspaces` registration. While shadowed, the native search and add-workspace shortcuts still belong to the native registration and may target an unmounted view; use "restore native tree" in the entry when you need them or native conversation-content search. It is an optional compact navigation mode, not a complete replacement for the native tree.
 - The compact entry does not backfill recent history and has no five-row cap; it records sessions actually entered, seeding at most the reliably selected current session when first upgraded. The current row is highlighted without a "current" tag. Leading status icons use DSH's public unified UI status in priority order: pending interaction, running, unread completion reminder, idle. `completionUnread` is DSH's process-local observed reminder, not durable unread state; if unified status is unavailable, the icon falls back only to catalog running metadata. Delegated subagents are omitted. Archived shortcuts remain listed but cannot be opened directly; use the workspace browser to filter and restore them.
 

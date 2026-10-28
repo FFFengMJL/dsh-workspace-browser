@@ -10,7 +10,7 @@
  * It never reads conversation bodies, never scans the filesystem, and never
  * writes DSH state except through `uiWorkspace` / the workspace controller.
  */
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   filterSessionIds,
   getUngroupedSessionIds,
@@ -34,7 +34,7 @@ import {
 import { SessionRow, WorkspaceCard, type SessionAction } from './cards.js'
 import { AddWorkspaceDialog, ArchiveConfirmDialog, DeleteWorkspaceDialog, HiddenWorkspacesDialog, RenameDialog, WorkspaceRenameDialog } from './dialogs.js'
 import { consumeAddWorkspaceIntent, onAddWorkspaceRequest } from './intents.js'
-import { useBrowserPreferences } from './preferences.js'
+import { updateBrowserPreferences, useBrowserPreferences } from './preferences.js'
 import { readSessionSelection, useSource, workspaceFailureMessage, type BrowserServices, type HostSessionRow } from './runtime.js'
 import { styles } from './styles.js'
 
@@ -107,6 +107,14 @@ export function WorkspaceBrowser({
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false)
   const [addWorkspaceBusy, setAddWorkspaceBusy] = useState(false)
   const [addWorkspaceError, setAddWorkspaceError] = useState<string | null>(null)
+  const addWorkspaceFlowRef = useRef(false)
+  const chooseWorkspaceDirectoryRef = useRef<() => void>(() => {})
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const workspaces = workspaceSnapshot?.items ?? EMPTY_WORKSPACES
   const sessionsById = sessionSnapshot?.byId ?? EMPTY_SESSIONS
@@ -243,10 +251,7 @@ export function WorkspaceBrowser({
   // the intent module. A request that arrives before this panel mounts is
   // held there and consumed on mount; later ones arrive as an event.
   useEffect(() => {
-    const open = () => {
-      setAddWorkspaceOpen(true)
-      setAddWorkspaceError(null)
-    }
+    const open = () => chooseWorkspaceDirectoryRef.current()
     if (consumeAddWorkspaceIntent()) open()
     return onAddWorkspaceRequest(open)
   }, [])
@@ -346,10 +351,7 @@ export function WorkspaceBrowser({
     }
   }
 
-  const beginAddWorkspace = () => {
-    setAddWorkspaceOpen(true)
-    setAddWorkspaceError(null)
-  }
+  const beginAddWorkspace = () => { void chooseWorkspaceDirectory() }
 
   /**
    * Register an existing Host directory.
@@ -359,9 +361,11 @@ export function WorkspaceBrowser({
    * the returned workspace is authoritative — the panel does not guess whether
    * it was newly created.
    */
-  const confirmAddWorkspace = async (path: string) => {
+  const registerWorkspace = async (path: string) => {
+    if (!mountedRef.current) return
     const problem = workspacePathProblem(path)
     if (problem) {
+      setAddWorkspaceOpen(true)
       setAddWorkspaceError(problem === 'blank'
         ? '请输入目录路径。'
         : '请输入运行 DSH 的主机上的绝对路径，例如 /srv/project。')
@@ -371,22 +375,55 @@ export function WorkspaceBrowser({
     setAddWorkspaceError(null)
     try {
       const created = await workspaceController.create(path.trim())
+      if (!mountedRef.current) return
       setAddWorkspaceOpen(false)
       // A workspace hidden earlier must become visible again, otherwise adding
-      // it would look like nothing happened.
-      if (hiddenWorkspaceIds.has(created.workspaceId)) {
-        updatePreferences({
-          hiddenWorkspaceIds: preferences.hiddenWorkspaceIds.filter((id) => id !== created.workspaceId),
-        })
-      }
+      // it would look like nothing happened. Merge against the latest shared
+      // preferences because a native chooser may stay open across tab updates.
+      updateBrowserPreferences((latest) => ({
+        hiddenWorkspaceIds: latest.hiddenWorkspaceIds.filter((id) => id !== created.workspaceId),
+      }))
       commitView({ workspaceId: created.workspaceId, query: '', scrollY: 0 })
       setNotice({ text: `工作区「${created.title}」已就绪。` })
     } catch (error) {
+      if (!mountedRef.current) return
+      setAddWorkspaceOpen(true)
       setAddWorkspaceError(workspaceFailureMessage(error))
     } finally {
-      setAddWorkspaceBusy(false)
+      if (mountedRef.current) setAddWorkspaceBusy(false)
     }
   }
+
+  const confirmAddWorkspace = async (path: string) => {
+    if (addWorkspaceFlowRef.current) return
+    addWorkspaceFlowRef.current = true
+    try {
+      await registerWorkspace(path)
+    } finally {
+      addWorkspaceFlowRef.current = false
+    }
+  }
+
+  /** Use DSH's native chooser first; null is an intentional cancellation. */
+  const chooseWorkspaceDirectory = async () => {
+    if (addWorkspaceFlowRef.current) return
+    addWorkspaceFlowRef.current = true
+    setAddWorkspaceBusy(true)
+    setAddWorkspaceError(null)
+    try {
+      const path = await uiWorkspace.pickDirectory()
+      if (!mountedRef.current || path === null) return
+      await registerWorkspace(path)
+    } catch (error) {
+      if (!mountedRef.current) return
+      setAddWorkspaceOpen(true)
+      setAddWorkspaceError(`系统目录选择器打开失败：${describeError(error)}。可重试，或手动输入/浏览主机目录。`)
+    } finally {
+      addWorkspaceFlowRef.current = false
+      if (mountedRef.current) setAddWorkspaceBusy(false)
+    }
+  }
+  chooseWorkspaceDirectoryRef.current = () => { void chooseWorkspaceDirectory() }
 
   const beginWorkspaceRename = (workspace: WorkspaceRecord) => {
     setWorkspaceRenameTarget(workspace.workspaceId)
@@ -744,6 +781,7 @@ export function WorkspaceBrowser({
     {addWorkspaceOpen && <AddWorkspaceDialog
       busy={addWorkspaceBusy}
       error={addWorkspaceError}
+      onPickDirectory={() => void chooseWorkspaceDirectory()}
       onListDirectory={(target, signal) => uiWorkspace.listDirectory(target, signal)}
       onSubmit={(path) => void confirmAddWorkspace(path)}
       onClose={() => { setAddWorkspaceOpen(false); setAddWorkspaceError(null) }}

@@ -89,17 +89,17 @@ export function subscribeBrowserPreferences(listener: (preferences: BrowserPrefe
  * has not seen a value yet; a failed write still publishes the in-memory
  * result so the current page reacts, matching the memory-only fallback.
  */
-export function updateBrowserPreferences(patch: Partial<BrowserPreferences>): BrowserPreferences {
+export function updateBrowserPreferences(
+  patch: Partial<BrowserPreferences> | ((latest: BrowserPreferences) => Partial<BrowserPreferences>),
+): BrowserPreferences {
   const storage = browserPreferenceStorage()
   // Read the shared copy on every write. Another tab may have changed a field
   // since the last storage event this page saw, and saving this page's whole
   // cached object would silently revert that change.
   const stored = storage !== undefined ? loadBrowserPreferences(storage) : undefined
-  const next: BrowserPreferences = {
-    ...(stored ?? latestPreferences ?? defaultBrowserPreferences()),
-    ...patch,
-    schemaVersion: 1,
-  }
+  const base = stored ?? latestPreferences ?? defaultBrowserPreferences()
+  const resolvePatch = (latest: BrowserPreferences) => typeof patch === 'function' ? patch(latest) : patch
+  const next: BrowserPreferences = { ...base, ...resolvePatch(base), schemaVersion: 1 }
   if (saveBrowserPreferences(storage, next)) {
     publishBrowserPreferences(next)
     return next
@@ -107,7 +107,8 @@ export function updateBrowserPreferences(patch: Partial<BrowserPreferences>): Br
   // The write was refused (quota, private mode, no storage). Merge onto what
   // this page last applied rather than the stale stored copy, so an unrelated
   // in-memory toggle is not reset, and still publish so the UI follows.
-  const memory: BrowserPreferences = { ...(latestPreferences ?? next), ...patch, schemaVersion: 1 }
+  const memoryBase = latestPreferences ?? next
+  const memory: BrowserPreferences = { ...memoryBase, ...resolvePatch(memoryBase), schemaVersion: 1 }
   publishBrowserPreferences(memory)
   return memory
 }

@@ -199,6 +199,8 @@ export function directoryFailureMessage(error: unknown): string {
  * services and never rewrite session logs directly.
  */
 export interface WorkspaceActions {
+  /** Open the DSH host's native directory chooser; null means the operator cancelled. */
+  pickDirectory(): Promise<string | null>
   /** Open a known session in the native conversation view. */
   openSession(sessionId: string): void
   /** Open (or reuse) a blank session in a workspace. */
@@ -298,8 +300,9 @@ export function createBrowserServices(runtime: PluginRuntime): BrowserServices {
     workspaces: runtime.workspaces.list,
     sessions: runtime.sessions.list,
     // Delegate instead of spreading: the Host service may expose prototype
-    // methods, and `listDirectory` is the one method this adapter wraps.
+    // methods, and the directory methods are adapted explicitly.
     uiWorkspace: {
+      pickDirectory: () => ui.pickDirectory(),
       openSession: (sessionId) => ui.openSession(sessionId),
       startSession: (workspaceId) => ui.startSession(workspaceId),
       archiveSession: (sessionId, options) => ui.archiveSession(sessionId, options),

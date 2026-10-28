@@ -7,7 +7,7 @@
  * refactor cannot quietly redefine "current" and either resurrect abandoned
  * blank sessions or hide the one the user is typing in.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createBrowserServices,
   directoryFailureMessage,
@@ -168,6 +168,7 @@ describe('browser service adapter', () => {
 
   const runtime = (overrides: {
     create?: PluginRuntime['workspaces']['create']
+    pickDirectory?: PluginRuntime['uiWorkspace']['pickDirectory']
     listDirectory?: PluginRuntime['uiWorkspace']['listDirectory']
   } = {}): PluginRuntime => ({
     slots: { inject: () => {}, register: () => () => {} },
@@ -186,6 +187,7 @@ describe('browser service adapter', () => {
     sessions: { list: source({ ids: [], byId: {} }) },
     uiSession: { sessionStatus: source(new Map()) },
     uiWorkspace: {
+      pickDirectory: overrides.pickDirectory ?? (async () => '/srv/picked'),
       openSession: () => {},
       startSession: () => {},
       archiveSession: async () => {},
@@ -203,6 +205,16 @@ describe('browser service adapter', () => {
     },
     remote: { session: { rename: async () => ({ ok: true }) } },
     layout: { panelInfo: source({ activePanelId: null }), selectPanel: () => {} },
+  })
+
+  it('delegates native directory picking and preserves cancellation', async () => {
+    const picked = vi.fn(async () => '/srv/picked')
+    const services = createBrowserServices(runtime({ pickDirectory: picked }))
+    await expect(services.uiWorkspace.pickDirectory()).resolves.toBe('/srv/picked')
+    expect(picked).toHaveBeenCalledOnce()
+
+    const cancelled = createBrowserServices(runtime({ pickDirectory: async () => null }))
+    await expect(cancelled.uiWorkspace.pickDirectory()).resolves.toBeNull()
   })
 
   it('maps a created workspace to the row the panel renders', async () => {

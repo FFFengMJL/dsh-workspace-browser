@@ -204,8 +204,10 @@ export function DeleteWorkspaceDialog({
 
 export interface AddWorkspaceDialogProps {
   busy: boolean
-  /** Refusal of the last submit; the typed path stays editable. */
+  /** Refusal of the last submit or native picker; manual entry stays available. */
   error?: string | null
+  /** Retry the DSH native directory chooser. */
+  onPickDirectory(): void
   /** List one Host directory; rejects with a user-facing message. */
   onListDirectory(path: string | undefined, signal: AbortSignal): Promise<DirectoryListingInfo>
   onSubmit(path: string): void
@@ -224,6 +226,7 @@ export interface AddWorkspaceDialogProps {
 export function AddWorkspaceDialog({
   busy,
   error,
+  onPickDirectory,
   onListDirectory,
   onSubmit,
   onClose,
@@ -274,6 +277,7 @@ export function AddWorkspaceDialog({
     wide
     footer={<>
       <button type="button" disabled={busy} onClick={onClose}>取消</button>
+      <button type="button" disabled={busy} onClick={onPickDirectory}>重新选择系统目录</button>
       <button className="wb-primary" type="button" disabled={!canSubmit} onClick={submit}>{busy ? '正在添加…' : '添加工作区'}</button>
     </>}
   >
