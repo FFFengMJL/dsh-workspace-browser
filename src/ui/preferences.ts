@@ -8,6 +8,12 @@
  *   never written here.
  * - A denied or full storage degrades to memory-only operation; nothing in this
  *   module throws, so the panel stays usable in private windows.
+ *
+ * Preference reads are also needed outside React: the compact sidebar entry is
+ * installed at plugin load, before any panel mounts. The same
+ * `subscribeBrowserPreferences` helper therefore backs both the hook and that
+ * controller, so a toggle in the panel reaches the sidebar in this tab and in
+ * every other same-origin tab.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -20,11 +26,90 @@ import {
   type BrowserPreferences,
 } from '../logic.js'
 
-function browserPreferenceStorage(): Storage | undefined {
+/** Same-tab change notification; `storage` events never fire in the writer. */
+export const BROWSER_PREFERENCES_EVENT = 'dsh-workspace-browser:preferences-changed'
+
+/**
+ * Last preferences this page has seen.
+ *
+ * Used only as the merge base for writes made outside the panel hook. It keeps
+ * a memory-only page consistent: when storage refuses writes, the sidebar's
+ * restore button still merges onto the value the panel just published instead
+ * of resetting unrelated settings to defaults.
+ */
+let latestPreferences: BrowserPreferences | undefined
+
+/** Resolve browser storage defensively; the accessor itself can throw. */
+export function browserPreferenceStorage(): Storage | undefined {
   if (typeof window === 'undefined') return undefined
-  // Reading `window.localStorage` itself throws when the origin is blocked, so
-  // the accessor is resolved defensively rather than assumed.
   return resolvePreferenceStorage(() => window.localStorage)
+}
+
+/** Announce a preference write to controllers living outside this hook. */
+export function publishBrowserPreferences(preferences: BrowserPreferences): void {
+  latestPreferences = preferences
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent<BrowserPreferences>(BROWSER_PREFERENCES_EVENT, { detail: preferences }))
+}
+
+/**
+ * Subscribe to preference changes from any source.
+ *
+ * `storage` covers other tabs (and a `localStorage.clear()`, whose `key` is
+ * null); the custom event covers this tab, where storage events do not fire.
+ */
+export function subscribeBrowserPreferences(listener: (preferences: BrowserPreferences) => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== BROWSER_PREFERENCES_KEY) return
+    const next = event.key === null ? defaultBrowserPreferences() : parseBrowserPreferences(event.newValue)
+    latestPreferences = next
+    listener(next)
+  }
+  const handleLocal = (event: Event) => {
+    const detail = (event as CustomEvent<BrowserPreferences>).detail
+    if (detail && typeof detail === 'object') {
+      latestPreferences = detail
+      listener(detail)
+    }
+  }
+  window.addEventListener('storage', handleStorage)
+  window.addEventListener(BROWSER_PREFERENCES_EVENT, handleLocal)
+  return () => {
+    window.removeEventListener('storage', handleStorage)
+    window.removeEventListener(BROWSER_PREFERENCES_EVENT, handleLocal)
+  }
+}
+
+/**
+ * Merge one patch into the latest known preferences and publish it.
+ *
+ * Used by controls that live outside the panel hook (the compact sidebar
+ * entry's restore button). Storage is the fallback merge base when this page
+ * has not seen a value yet; a failed write still publishes the in-memory
+ * result so the current page reacts, matching the memory-only fallback.
+ */
+export function updateBrowserPreferences(patch: Partial<BrowserPreferences>): BrowserPreferences {
+  const storage = browserPreferenceStorage()
+  // Read the shared copy on every write. Another tab may have changed a field
+  // since the last storage event this page saw, and saving this page's whole
+  // cached object would silently revert that change.
+  const stored = storage !== undefined ? loadBrowserPreferences(storage) : undefined
+  const next: BrowserPreferences = {
+    ...(stored ?? latestPreferences ?? defaultBrowserPreferences()),
+    ...patch,
+    schemaVersion: 1,
+  }
+  if (saveBrowserPreferences(storage, next)) {
+    publishBrowserPreferences(next)
+    return next
+  }
+  // The write was refused (quota, private mode, no storage). Merge onto what
+  // this page last applied rather than the stale stored copy, so an unrelated
+  // in-memory toggle is not reset, and still publish so the UI follows.
+  const memory: BrowserPreferences = { ...(latestPreferences ?? next), ...patch, schemaVersion: 1 }
+  publishBrowserPreferences(memory)
+  return memory
 }
 
 export interface BrowserPreferencesState {
@@ -49,17 +134,11 @@ export function useBrowserPreferences(): BrowserPreferencesState {
     // A `false` return means the write was refused; the in-memory value above
     // still drives this page, matching the documented memory-only fallback.
     saveBrowserPreferences(storage, next)
+    // The sidebar controller is not a React child of this hook; tell it now.
+    publishBrowserPreferences(next)
   }, [preferences, storage])
 
-  useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      // `key === null` is a full `localStorage.clear()`, which resets defaults.
-      if (event.key !== null && event.key !== BROWSER_PREFERENCES_KEY) return
-      setPreferences(event.key === null ? defaultBrowserPreferences() : parseBrowserPreferences(event.newValue))
-    }
-    window.addEventListener('storage', handleStorage)
-    return () => window.removeEventListener('storage', handleStorage)
-  }, [])
+  useEffect(() => subscribeBrowserPreferences(setPreferences), [])
 
   return { preferences, update }
 }
