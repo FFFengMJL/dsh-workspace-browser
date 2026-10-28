@@ -18,7 +18,7 @@ The bulk of this plugin's implementation, its refactors, and the related documen
 - Blank sessions (`blank`) follow the native session tree by default: only the one you have open is listed, labelled "New session / not started yet", and it leaves the list when you switch away. Nothing is deleted — switch on "Show blank sessions" to list every unsent draft and search it by metadata.
 - One consistent compact density. A legacy saved "comfortable" value is ignored without resetting other preferences.
 - Selective restore for hidden workspaces: search the list, restore individual entries, restore a checked subset, or restore everything.
-- Session manual/recent ordering, archive filters, native pin/rename/archive/restore, fork, copy ID, and new-session actions.
+- Session manual/recent ordering, archive filters, native pin/rename/archive/restore, fork, copy ID, and new-session actions. Status-only actions (including archiving the currently selected session) keep the browser open; opening a session or starting a new one are explicit navigation actions.
 - Workspace rename and delete through DSH's public workspace service; deleting removes only the registration, keeps the folder and session logs, and returns those sessions to Ungrouped.
 - Responsive layout, visible keyboard focus, and no per-session history loading from the browser.
 
@@ -29,7 +29,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.4/dsh-workspace-browser-0.1.4.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.5/dsh-workspace-browser-0.1.5.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -49,8 +49,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.1.4.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.4.tgz"
+sha256sum -c dsh-workspace-browser-0.1.5.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.5.tgz"
 ```
 
 ### From a local checkout (development)

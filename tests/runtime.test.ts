@@ -8,6 +8,7 @@
  * blank sessions or hide the one the user is typing in.
  */
 import { describe, expect, it, vi } from 'vitest'
+import { PANEL_ID } from '../src/panel.js'
 import {
   createBrowserServices,
   directoryFailureMessage,
@@ -170,10 +171,14 @@ describe('browser service adapter', () => {
     create?: PluginRuntime['workspaces']['create']
     pickDirectory?: PluginRuntime['uiWorkspace']['pickDirectory']
     listDirectory?: PluginRuntime['uiWorkspace']['listDirectory']
+    archiveSession?: PluginRuntime['uiWorkspace']['archiveSession']
+    layout?: PluginRuntime['layout']
+    sessions?: PluginRuntime['sessions']['list']
+    workspaces?: PluginRuntime['workspaces']['list']
   } = {}): PluginRuntime => ({
     slots: { inject: () => {}, register: () => () => {} },
     workspaces: {
-      list: source({ items: [] }),
+      list: overrides.workspaces ?? source({ items: [] }),
       insertBefore: async () => {},
       create: overrides.create ?? (async (input) => ({
         workspaceId: 'w1',
@@ -184,13 +189,13 @@ describe('browser service adapter', () => {
       rename: async () => {},
       delete: async () => {},
     },
-    sessions: { list: source({ ids: [], byId: {} }) },
+    sessions: { list: overrides.sessions ?? source({ ids: [], byId: {} }) },
     uiSession: { sessionStatus: source(new Map()) },
     uiWorkspace: {
       pickDirectory: overrides.pickDirectory ?? (async () => '/srv/picked'),
       openSession: () => {},
       startSession: () => {},
-      archiveSession: async () => {},
+      archiveSession: overrides.archiveSession ?? (async () => {}),
       unarchiveSession: async () => {},
       pinSession: async () => {},
       unpinSession: async () => {},
@@ -204,7 +209,274 @@ describe('browser service adapter', () => {
       })),
     },
     remote: { session: { rename: async () => ({ ok: true }) } },
-    layout: { panelInfo: source({ activePanelId: null }), selectPanel: () => {} },
+    layout: overrides.layout ?? { panelInfo: source({ activePanelId: null }), selectPanel: () => {} },
+  })
+
+  const mutableWorkspaces = (initial: ReturnType<PluginRuntime['workspaces']['list']['getSnapshot']>) => {
+    let snapshot = initial
+    const listeners = new Set<() => void>()
+    const workspaces: PluginRuntime['workspaces']['list'] = {
+      getSnapshot: () => snapshot,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+    }
+    return {
+      source: workspaces,
+      set: (next: typeof initial) => {
+        snapshot = next
+        for (const listener of [...listeners]) listener()
+      },
+    }
+  }
+
+  const mutableSessions = (initial: ReturnType<PluginRuntime['sessions']['list']['getSnapshot']>) => {
+    let snapshot = initial
+    const listeners = new Set<() => void>()
+    const sessions: PluginRuntime['sessions']['list'] = {
+      getSnapshot: () => snapshot,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+    }
+    return {
+      source: sessions,
+      set: (next: typeof initial) => {
+        snapshot = next
+        for (const listener of [...listeners]) listener()
+      },
+    }
+  }
+
+  const panelLayout = (initial: string | null) => {
+    let activePanelId = initial
+    const selections: Array<string | null> = []
+    const listeners = new Set<() => void>()
+    const setActivePanel = (panelId: string | null) => {
+      activePanelId = panelId
+      for (const listener of [...listeners]) listener()
+    }
+    const layout: PluginRuntime['layout'] = {
+      panelInfo: {
+        getSnapshot: () => ({ activePanelId }),
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => { listeners.delete(listener) }
+        },
+      },
+      selectPanel: (panelId) => {
+        selections.push(panelId)
+        setActivePanel(panelId)
+      },
+    }
+    return {
+      layout,
+      selections,
+      activePanel: () => activePanelId,
+      setActivePanel,
+    }
+  }
+
+  it('keeps the browser open when archiving clears its active main selection', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const workspaces = mutableWorkspaces({ items: [], archivedSessionIds: [] })
+    const sessions = mutableSessions({
+      phase: 'ready',
+      ids: ['current'],
+      byId: { current: row('current', { retainedBy: { mainView: 1 } }) },
+    })
+    const archiveSession = vi.fn(async (_id: string, options?: { readonly stopActivity?: boolean }) => {
+      expect(options).toEqual({ stopActivity: true })
+      // The archived-set update and Host retention release precede panel clear.
+      workspaces.set({ items: [], archivedSessionIds: ['current'] })
+      sessions.set({ phase: 'ready', ids: ['current'], byId: { current: row('current', { retainedBy: {} }) } })
+      panel.setActivePanel(null)
+    })
+    const services = createBrowserServices(runtime({
+      archiveSession,
+      layout: panel.layout,
+      sessions: sessions.source,
+      workspaces: workspaces.source,
+    }))
+
+    await services.uiWorkspace.archiveSession('current', { stopActivity: true })
+
+    expect(archiveSession).toHaveBeenCalledOnce()
+    expect(panel.selections).toEqual([PANEL_ID])
+    expect(panel.activePanel()).toBe(PANEL_ID)
+  })
+
+  it('does not reclaim another panel or reopen a browser that was not active', async () => {
+    const otherPanel = panelLayout(PANEL_ID)
+    const servicesWithOtherPanel = createBrowserServices(runtime({
+      layout: otherPanel.layout,
+      sessions: source({ phase: 'ready', ids: ['session'], byId: { session: row('session', { retainedBy: { mainView: 1 } }) } }),
+      archiveSession: async () => { otherPanel.setActivePanel('other-panel') },
+    }))
+    await servicesWithOtherPanel.uiWorkspace.archiveSession('session')
+    expect(otherPanel.selections).toEqual([])
+    expect(otherPanel.activePanel()).toBe('other-panel')
+
+    const inactive = panelLayout(null)
+    const servicesWhileInactive = createBrowserServices(runtime({
+      layout: inactive.layout,
+      sessions: source({ phase: 'ready', ids: ['session'], byId: { session: row('session', { retainedBy: { mainView: 1 } }) } }),
+      archiveSession: async () => { inactive.setActivePanel(null) },
+    }))
+    await servicesWhileInactive.uiWorkspace.archiveSession('session')
+    expect(inactive.selections).toEqual([])
+  })
+
+  it('does not infer a selected session from a pending partial catalog', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const sessions = mutableSessions({
+      phase: 'pending',
+      ids: ['session'],
+      byId: { session: row('session', { retainedBy: { mainView: 1 } }) },
+    })
+    const services = createBrowserServices(runtime({
+      layout: panel.layout,
+      sessions: sessions.source,
+      archiveSession: async () => { panel.setActivePanel(null) },
+    }))
+
+    await services.uiWorkspace.archiveSession('session')
+
+    expect(panel.selections).toEqual([])
+    expect(panel.activePanel()).toBeNull()
+  })
+
+  it('restores the browser after a failed archive without hiding the Host error', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const sessions = mutableSessions({
+      phase: 'ready',
+      ids: ['session'],
+      byId: { session: row('session', { retainedBy: { mainView: 1 } }) },
+    })
+    const refusal = new Error('archive refused')
+    const workspaces = mutableWorkspaces({ items: [], archivedSessionIds: [] })
+    const services = createBrowserServices(runtime({
+      layout: panel.layout,
+      sessions: sessions.source,
+      workspaces: workspaces.source,
+      archiveSession: async () => {
+        workspaces.set({ items: [], archivedSessionIds: ['session'] })
+        sessions.set({ phase: 'ready', ids: ['session'], byId: { session: row('session', { retainedBy: {} }) } })
+        panel.setActivePanel(null)
+        throw refusal
+      },
+    }))
+
+    await expect(services.uiWorkspace.archiveSession('session')).rejects.toBe(refusal)
+    expect(panel.selections).toEqual([PANEL_ID])
+  })
+
+  it('does not reclaim the browser after the user switches panels during the archive request', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const workspaces = mutableWorkspaces({ items: [], archivedSessionIds: [] })
+    const sessions = mutableSessions({
+      phase: 'ready',
+      ids: ['session'],
+      byId: { session: row('session', { retainedBy: { mainView: 1 } }) },
+    })
+    let finishArchive!: () => void
+    const pendingArchive = new Promise<void>((resolve) => { finishArchive = resolve })
+    const services = createBrowserServices(runtime({
+      layout: panel.layout,
+      sessions: sessions.source,
+      workspaces: workspaces.source,
+      archiveSession: async () => {
+        workspaces.set({ items: [], archivedSessionIds: ['session'] })
+        sessions.set({ phase: 'ready', ids: ['session'], byId: { session: row('session', { retainedBy: {} }) } })
+        panel.setActivePanel(null)
+        await pendingArchive
+      },
+    }))
+
+    const pending = services.uiWorkspace.archiveSession('session')
+    panel.setActivePanel('other-panel')
+    finishArchive()
+    await pending
+
+    expect(panel.selections).toEqual([PANEL_ID])
+    expect(panel.activePanel()).toBe('other-panel')
+  })
+
+  it('does not restore the browser after an unrelated clearMain during archive', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const sessions = mutableSessions({
+      phase: 'ready',
+      ids: ['session'],
+      byId: { session: row('session', { retainedBy: { mainView: 1 } }) },
+    })
+    let finishArchive!: () => void
+    const pendingArchive = new Promise<void>((resolve) => { finishArchive = resolve })
+    const services = createBrowserServices(runtime({
+      layout: panel.layout,
+      sessions: sessions.source,
+      archiveSession: async () => pendingArchive,
+    }))
+
+    const pending = services.uiWorkspace.archiveSession('session')
+    // Host clearMain releases the session before selecting the native view.
+    sessions.set({ phase: 'ready', ids: ['session'], byId: { session: row('session', { retainedBy: {} }) } })
+    panel.setActivePanel(null)
+    finishArchive()
+    await pending
+
+    expect(panel.selections).toEqual([])
+    expect(panel.activePanel()).toBeNull()
+  })
+
+  it('does not override an explicit session navigation during archive', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const sessions = mutableSessions({
+      phase: 'ready',
+      ids: ['session', 'next'],
+      byId: {
+        session: row('session', { retainedBy: { mainView: 1 } }),
+        next: row('next', { retainedBy: {} }),
+      },
+    })
+    let finishArchive!: () => void
+    const pendingArchive = new Promise<void>((resolve) => { finishArchive = resolve })
+    const services = createBrowserServices(runtime({
+      layout: panel.layout,
+      sessions: sessions.source,
+      archiveSession: async () => pendingArchive,
+    }))
+
+    const pending = services.uiWorkspace.archiveSession('session')
+    sessions.set({
+      phase: 'ready',
+      ids: ['session', 'next'],
+      byId: {
+        session: row('session', { retainedBy: {} }),
+        next: row('next', { retainedBy: { mainView: 1 } }),
+      },
+    })
+    panel.setActivePanel(null)
+    finishArchive()
+    await pending
+
+    expect(panel.selections).toEqual([])
+    expect(panel.activePanel()).toBeNull()
+  })
+
+  it('does not add panel navigation to other status or explicit navigation actions', async () => {
+    const panel = panelLayout(PANEL_ID)
+    const services = createBrowserServices(runtime({ layout: panel.layout }))
+
+    await services.uiWorkspace.unarchiveSession('session')
+    await services.uiWorkspace.pinSession('session')
+    await services.uiWorkspace.unpinSession('session')
+    await services.uiWorkspace.forkSession('session')
+    services.uiWorkspace.openSession('session')
+    services.uiWorkspace.startSession('workspace')
+
+    expect(panel.selections).toEqual([])
   })
 
   it('delegates native directory picking and preserves cancellation', async () => {

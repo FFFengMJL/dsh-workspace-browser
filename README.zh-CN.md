@@ -18,7 +18,7 @@
 - 空白会话（`blank`）默认与原生会话树一致：只显示当前打开的那一个，标为“新会话 / 尚未开始对话”，切走即隐藏，搜索不命中。需要找回未发送的草稿时，打开“显示空白会话”开关即可列出全部并由元数据搜索。
 - 统一紧凑显示密度；旧设置中的“标准”值会自动忽略为紧凑，不重置其他偏好。
 - 隐藏工作区支持选择性恢复：可筛选列表、逐项恢复、恢复勾选项，或恢复全部。
-- 会话最近／手动顺序、归档筛选、原生会话置顶、重命名、归档与恢复、fork、复制 ID、新会话。
+- 会话最近／手动顺序、归档筛选、原生会话置顶、重命名、归档与恢复、fork、复制 ID、新会话。归档等纯状态操作（包括归档当前选中的会话）会保持工作区浏览器打开；只有明确打开会话或新建会话才导航到对话页。
 - 工作区重命名与删除：走 DSH 公开的工作区服务；删除只移除注册，文件夹与会话记录保留，会话回到“未分组”。
 - 自适应布局、键盘焦点样式、中文界面；打开会话只切换到 DSH 原生对话页，不由本插件逐条加载历史。
 
@@ -29,7 +29,7 @@
 ### 从 Release 压缩包安装（推荐）
 
 1. 打开一个**已发布**的 Release，复制其 `.tgz` 附件地址，例如
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.4/dsh-workspace-browser-0.1.4.tgz`。
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.5/dsh-workspace-browser-0.1.5.tgz`。
    草稿状态的 Release 不提供可下载附件，发布后该地址才会生效。
 2. 安装到运行 Web 界面的 profile：
 
@@ -49,8 +49,8 @@ DSH 支持用 npm 包名、git 地址或压缩包地址安装插件。本项目�
 ```sh
 curl -fLO <压缩包地址>
 curl -fLO <压缩包地址>.sha256
-sha256sum -c dsh-workspace-browser-0.1.4.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.4.tgz"
+sha256sum -c dsh-workspace-browser-0.1.5.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.5.tgz"
 ```
 
 ### 从本地源码安装（开发用）

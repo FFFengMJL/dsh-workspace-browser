@@ -15,6 +15,7 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionRecord, SessionSelection, WorkspaceRecord } from '../logic.js'
+import { PANEL_ID } from '../panel.js'
 
 /**
  * Observable snapshot source: the shape `useSyncExternalStore` needs.
@@ -305,7 +306,78 @@ export function createBrowserServices(runtime: PluginRuntime): BrowserServices {
       pickDirectory: () => ui.pickDirectory(),
       openSession: (sessionId) => ui.openSession(sessionId),
       startSession: (workspaceId) => ui.startSession(workspaceId),
-      archiveSession: (sessionId, options) => ui.archiveSession(sessionId, options),
+      archiveSession: async (sessionId, options) => {
+        // Archiving the Host's current main session clears its selection and
+        // can close whichever panel is active. Confirm both archive-specific
+        // state (the target entered the archived set) and an empty current
+        // selection before restoring; an unrelated clearMain or replacement
+        // session is not the archive side effect we intend to undo.
+        const browserWasActive = runtime.layout.panelInfo.getSnapshot().activePanelId === PANEL_ID
+        const initialWorkspaces = runtime.workspaces.list.getSnapshot()
+        const targetWasArchived = initialWorkspaces.archivedSessionIds?.includes(sessionId) === true
+        let archiveConfirmed = false
+        const observeArchiveState = () => {
+          if (targetWasArchived) return
+          const snapshot = runtime.workspaces.list.getSnapshot()
+          if (snapshot.archivedSessionIds?.includes(sessionId)) archiveConfirmed = true
+        }
+        const initialSessions = runtime.sessions.list.getSnapshot()
+        const initialSelection = initialSessions.phase === 'ready'
+          ? readSessionSelection(initialSessions.ids ?? [], initialSessions.byId ?? {})
+          : { known: false as const }
+        const mayClearCurrent = initialSelection.known && initialSelection.currentSessionId === sessionId
+        let hostClearedMainSelection = false
+        let userNavigation = false
+        let anotherPanelWasSelected = false
+        const observeSelection = () => {
+          if (!mayClearCurrent) return
+          const snapshot = runtime.sessions.list.getSnapshot()
+          if (snapshot.phase !== 'ready') return
+          const selection = readSessionSelection(snapshot.ids ?? [], snapshot.byId ?? {})
+          // A different current id means an explicit session replacement, not
+          // the Host clearing the archive target. Restore only when no main
+          // session remains selected at all.
+          if (selection.known && selection.currentSessionId === undefined) hostClearedMainSelection = true
+        }
+        const restoreBrowserIfCleared = () => {
+          if (!browserWasActive) return
+          observeArchiveState()
+          const activePanelId = runtime.layout.panelInfo.getSnapshot().activePanelId
+          if (activePanelId !== null) {
+            if (activePanelId !== PANEL_ID) anotherPanelWasSelected = true
+            return
+          }
+          if (userNavigation || anotherPanelWasSelected || !archiveConfirmed || !hostClearedMainSelection) {
+            // Without both archive-specific confirmation and an empty main
+            // selection, a null transition is user navigation, not recovery.
+            if (!archiveConfirmed || !hostClearedMainSelection) userNavigation = true
+            return
+          }
+          try {
+            runtime.layout.selectPanel(PANEL_ID)
+          } catch (error) {
+            // Archiving has already been attempted. A failure to restore the
+            // view must not mask the Host's actual mutation result.
+            console.warn('dsh-workspace-browser: 无法恢复工作区浏览器。', error)
+          }
+        }
+        const unsubscribePanel = browserWasActive
+          ? runtime.layout.panelInfo.subscribe(restoreBrowserIfCleared)
+          : () => {}
+        const unsubscribeSessions = mayClearCurrent
+          ? runtime.sessions.list.subscribe(observeSelection)
+          : () => {}
+        try {
+          await ui.archiveSession(sessionId, options)
+        } finally {
+          observeSelection()
+          // Snapshot callbacks cover Host cleanup during propagation; this
+          // final check handles cleanup immediately before promise settlement.
+          restoreBrowserIfCleared()
+          unsubscribeSessions()
+          unsubscribePanel()
+        }
+      },
       unarchiveSession: (sessionId) => ui.unarchiveSession(sessionId),
       pinSession: (sessionId) => ui.pinSession(sessionId),
       unpinSession: (sessionId) => ui.unpinSession(sessionId),
