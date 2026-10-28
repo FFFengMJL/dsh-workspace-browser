@@ -43,8 +43,6 @@ export type SearchScope = 'all' | 'workspaces' | 'sessions'
 export type WorkspaceOrder = 'manual' | 'name' | 'recent'
 export type SessionOrder = 'manual' | 'recent'
 export type WorkspaceGroupBy = 'workspace' | 'workspace-tree' | 'flat'
-/** Visual density of the workspace grid and session rows. */
-export type DisplayDensity = 'compact' | 'comfortable'
 
 /** Heading used when a workspace path has no parent directory. */
 export const ROOT_GROUP_LABEL: string = '根目录'
@@ -88,8 +86,6 @@ export interface BrowserPreferences {
    * find a session whose draft was never sent, which is otherwise invisible.
    */
   showBlankSessions: boolean
-  /** Card density. Defaults to `'compact'`. */
-  density: DisplayDensity
   /**
    * Whether the native workspace/session tree is replaced with a compact
    * launcher. Defaults to `false`, so an existing install keeps DSH's own
@@ -113,7 +109,6 @@ export function defaultBrowserPreferences(): BrowserPreferences {
     archivedFilter: 'active',
     showSubagents: false,
     showBlankSessions: false,
-    density: 'compact',
     simplifySidebar: false,
   }
 }
@@ -150,7 +145,6 @@ export function parseBrowserPreferences(raw: string | null): BrowserPreferences 
       archivedFilter: record.archivedFilter === 'all' || record.archivedFilter === 'archived' ? record.archivedFilter : 'active',
       showSubagents: record.showSubagents === true,
       showBlankSessions: record.showBlankSessions === true,
-      density: record.density === 'comfortable' ? 'comfortable' : 'compact',
       // Missing on payloads written before this field existed: keep the
       // native tree, which is also the fresh-install default.
       simplifySidebar: record.simplifySidebar === true,
@@ -566,89 +560,93 @@ export function createLatestRequest(): LatestRequest {
   }
 }
 
-/** Why a session appears in the compact sidebar's shortcut list. */
-export type SidebarSessionReason = 'current' | 'running' | 'finished' | 'recent'
+export const OPENED_SESSIONS_KEY = 'dsh-workspace-browser.opened-sessions.v1'
 
-/** One session shortcut rendered by the compact sidebar. */
-export interface SidebarSessionRow {
-  readonly id: string
+/** Parse the plugin-owned navigation list, rejecting malformed ids and duplicates. */
+export function parseOpenedSessionIds(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (!Array.isArray(value)) return []
+    return [...new Set(value.filter((id): id is string =>
+      typeof id === 'string' && id.length > 0 && id.length <= 256,
+    ))]
+  } catch {
+    return []
+  }
+}
+
+/** Append a newly entered session without changing an existing shortcut's position. */
+export function appendOpenedSession(ids: readonly string[], id: string): string[] {
+  return ids.includes(id) ? ids.slice() : [...ids, id]
+}
+
+/** Remove only the plugin's navigation shortcut; this does not mutate DSH. */
+export function removeOpenedSession(ids: readonly string[], id: string): string[] {
+  return ids.filter((item) => item !== id)
+}
+
+export interface OpenedSessionGroup {
+  readonly workspaceId?: string
   readonly title: string
-  readonly reason: SidebarSessionReason
-  /** Live Agent state; the current session can be running too. */
-  readonly running: boolean
-  /** Owning workspace title, when the catalog can attribute the session. */
-  readonly owner?: string
-  readonly updatedAt: number
-}
-
-/** Options for {@link sidebarSessionRows}. */
-export interface SidebarSessionOptions {
+  readonly path?: string
   readonly ids: readonly string[]
-  readonly sessionsById: Readonly<Record<string, SessionRecord>>
-  /** Session → owning workspace index; only the title is read here. */
-  readonly owners?: ReadonlyMap<string, { readonly title: string }>
-  readonly archivedIds?: ReadonlySet<string>
-  /** Session the conversation view holds, when the catalog reports one. */
-  readonly currentSessionId?: string
-  /** Recently finished ids, newest first; deduplicated against the rest. */
-  readonly finishedIds?: readonly string[]
-  /** Maximum rows; defaults to 5. */
-  readonly limit?: number
 }
 
-/**
- * Choose the sessions worth surfacing in the simplified sidebar.
- *
- * Order is deliberate: the open session first, then running work, then
- * sessions that finished since this entry started watching, then recent
- * history. Archived, delegated and unrelated blank rows stay out — the full
- * panel remains the place for exhaustive lists. A blank session is still shown
- * when it is the open one, because that is exactly the draft the user is in.
- */
-export function sidebarSessionRows(options: SidebarSessionOptions): SidebarSessionRow[] {
-  const { ids, sessionsById } = options
-  const limit = Math.max(0, options.limit ?? 5)
-  const archived = options.archivedIds ?? new Set<string>()
-  const finished = options.finishedIds ?? []
-  const current = options.currentSessionId
-  const owners = options.owners
-  const rows: SidebarSessionRow[] = []
-  const seen = new Set<string>()
+export function isCurrentSidebarSession(sessionId: string, currentSessionId: string | undefined, panelActive: boolean): boolean {
+  return !panelActive && currentSessionId === sessionId
+}
 
-  const eligible = (id: string): boolean => {
-    const session = sessionsById[id]
-    if (!session) return false
-    if (session.origin === 'subagent') return false
-    if (id !== current && archived.has(id)) return false
-    if (id !== current && session.blank === true) return false
-    return true
+export type SessionBadgeKind = 'approval' | 'question' | 'running' | 'completed' | 'idle'
+
+/** Presentation follows the public unified Host status priority, not inferred transitions. */
+export function sessionBadgeState(
+  status: {
+    readonly running: boolean | undefined
+    readonly pendingInteraction: { readonly kind: string } | undefined
+    readonly completionUnread: boolean
+  } | undefined,
+  catalogRunning: boolean,
+  runningChild = false,
+): { readonly kind: SessionBadgeKind; readonly label: string; readonly glyph: string } {
+  const pending = status?.pendingInteraction
+  if (pending) {
+    return pending.kind === 'question' || pending.kind === 'plan-review'
+      ? { kind: 'question', label: '等待你的回答', glyph: '?' }
+      : { kind: 'approval', label: '等待你的处理', glyph: '!' }
   }
-
-  const push = (id: string, reason: SidebarSessionReason): void => {
-    if (rows.length >= limit || seen.has(id) || !eligible(id)) return
-    seen.add(id)
-    rows.push({
-      id,
-      title: sessionRowTitle(sessionsById[id]),
-      reason,
-      running: sessionsById[id]?.running === true,
-      owner: owners?.get(id)?.title,
-      updatedAt: sessionsById[id]?.updatedAt ?? 0,
-    })
+  if (status?.running === true || (status?.running === undefined && catalogRunning) || runningChild) {
+    const ownRunning = status?.running ?? catalogRunning
+    return { kind: 'running', label: runningChild && !ownRunning ? '子代理运行中' : '运行中', glyph: '●' }
   }
+  if (status?.completionUnread) return { kind: 'completed', label: '刚完成', glyph: '✓' }
+  return { kind: 'idle', label: '空闲', glyph: '·' }
+}
 
-  const byRecent = (a: string, b: string): number =>
-    (sessionsById[b]?.updatedAt ?? 0) - (sessionsById[a]?.updatedAt ?? 0)
-
-  if (current) push(current, 'current')
-  const running = ids
-    .filter((id) => id !== current && sessionsById[id]?.running === true)
-    .sort(byRecent)
-  for (const id of running) push(id, 'running')
-  for (const id of finished) if (id !== current) push(id, 'finished')
-  for (const id of ids.slice().sort(byRecent)) {
-    if (rows.length >= limit) break
-    push(id, 'recent')
+/** Group saved navigation ids by current catalog ownership, preserving first-added order. */
+export function groupOpenedSessions(
+  ids: readonly string[],
+  workspaces: readonly WorkspaceRecord[],
+): OpenedSessionGroup[] {
+  const owners = new Map<string, WorkspaceRecord>()
+  for (const workspace of workspaces) {
+    for (const id of workspace.sessionIds) if (!owners.has(id)) owners.set(id, workspace)
   }
-  return rows
+  const groups = new Map<string | undefined, { workspace?: WorkspaceRecord; ids: string[] }>()
+  for (const id of ids) {
+    const workspace = owners.get(id)
+    const key = workspace?.workspaceId
+    let group = groups.get(key)
+    if (!group) {
+      group = { workspace, ids: [] }
+      groups.set(key, group)
+    }
+    group.ids.push(id)
+  }
+  return [...groups.entries()].map(([, group]) => ({
+    workspaceId: group.workspace?.workspaceId,
+    title: group.workspace?.title ?? '未分组',
+    path: group.workspace?.path,
+    ids: group.ids,
+  }))
 }

@@ -93,6 +93,8 @@ export function WorkspaceBrowser({
   const [renameTarget, setRenameTarget] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [hiddenDialogOpen, setHiddenDialogOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Workspace registration mutations. Only one of the two dialogs is open at a
   // time, so they share one busy/error pair instead of four state slots.
   const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<string | null>(null)
@@ -574,7 +576,20 @@ export function WorkspaceBrowser({
                 {renderSessionList(sessionHits)}
               </section>
 
-  return <main className="wb-root" data-density={preferences.density}>
+  const activeFilterLabels = [
+    !details && view.scope !== 'all' ? `范围：${view.scope === 'workspaces' ? '工作区' : '会话'}` : '',
+    preferences.archivedFilter === 'all' ? '包含归档' : preferences.archivedFilter === 'archived' ? '仅归档' : '',
+    preferences.showSubagents ? '显示子代理' : '',
+    preferences.showBlankSessions ? '显示空白会话' : '',
+  ].filter(Boolean)
+  const filterCount = activeFilterLabels.length
+
+  const resetFilters = () => {
+    commitView({ scope: 'all' })
+    updatePreferences({ archivedFilter: 'active', showSubagents: false, showBlankSessions: false })
+  }
+
+  return <main className="wb-root">
     <style>{styles}</style>
 
     <header className="wb-container wb-header">
@@ -589,7 +604,7 @@ export function WorkspaceBrowser({
         {!details && <button className="wb-primary" type="button" onClick={beginAddWorkspace}>＋ 添加工作区</button>}
       </div>
 
-      <div className="wb-controls">
+      <div className="wb-toolbar">
         <label className="wb-search">
           <span aria-hidden="true">⌕</span>
           <input
@@ -599,12 +614,7 @@ export function WorkspaceBrowser({
             aria-label="搜索工作区与会话"
           />
         </label>
-        {!details && <label>范围 <select value={view.scope} onChange={(event) => commitView({ scope: event.target.value as SearchScope })}>
-          <option value="all">全部</option>
-          <option value="workspaces">工作区</option>
-          <option value="sessions">会话</option>
-        </select></label>}
-        <label>排序 <select
+        <label className="wb-sort">排序 <select
           value={details ? preferences.sessionOrder : preferences.workspaceOrder}
           onChange={(event) => details
             ? updatePreferences({ sessionOrder: event.target.value as SessionOrder })
@@ -614,56 +624,76 @@ export function WorkspaceBrowser({
             ? <><option value="manual">手动顺序</option><option value="recent">最近活动</option></>
             : <><option value="manual">手动顺序</option><option value="name">名称</option><option value="recent">最近活动</option></>}
         </select></label>
-        <label>归档 <select
-          value={preferences.archivedFilter}
-          onChange={(event) => updatePreferences({ archivedFilter: event.target.value as ArchivedFilter })}
-        >
-          <option value="active">隐藏已归档</option>
-          <option value="all">全部</option>
-          <option value="archived">仅归档</option>
-        </select></label>
-        {!details && <label>分组 <select
-          value={preferences.groupBy}
-          onChange={(event) => updatePreferences({ groupBy: event.target.value as WorkspaceGroupBy })}
-        >
-          <option value="workspace">工作区</option>
-          <option value="workspace-tree">工作区树</option>
-          <option value="flat">平铺</option>
-        </select></label>}
-        <label>密度 <select
-          value={preferences.density}
-          onChange={(event) => updatePreferences({ density: event.target.value === 'comfortable' ? 'comfortable' : 'compact' })}
-        >
-          <option value="compact">紧凑</option>
-          <option value="comfortable">标准</option>
-        </select></label>
-        <label className="wb-toggle">
-          <input
-            type="checkbox"
-            checked={preferences.showSubagents}
-            onChange={(event) => updatePreferences({ showSubagents: event.target.checked })}
-          />
-          显示子代理会话
-        </label>
-        <label className="wb-toggle" title="列出所有尚未开始对话的会话，包括未发送的草稿；默认只显示当前打开的那一个">
-          <input
-            type="checkbox"
-            checked={preferences.showBlankSessions}
-            onChange={(event) => updatePreferences({ showBlankSessions: event.target.checked })}
-          />
-          显示空白会话
-        </label>
-        <label className="wb-toggle" title="用紧凑入口替换 DSH 原生会话树；关闭后立即恢复原生树">
-          <input
-            type="checkbox"
-            checked={preferences.simplifySidebar}
-            onChange={(event) => updatePreferences({ simplifySidebar: event.target.checked })}
-          />
-          简化原生会话树
-        </label>
+        <button
+          className="wb-toolbar-button"
+          type="button"
+          aria-expanded={filtersOpen}
+          aria-controls="wb-filter-panel"
+          onClick={() => setFiltersOpen((open) => !open)}
+        >筛选与显示{filterCount > 0 ? ` · ${filterCount}` : ''}{!details ? ` · ${preferences.groupBy === 'workspace-tree' ? '工作区树' : preferences.groupBy === 'flat' ? '平铺' : '工作区'}` : ''}</button>
       </div>
+      {filterCount > 0 && <p className="wb-active-filters">已启用：{activeFilterLabels.join('、')}</p>}
 
-      <p className="wb-boundary">浏览偏好保存在本插件独立的浏览器存储，并可在同源标签页间同步；不与原生侧栏同步。这里只搜索会话元数据，不读取对话正文。</p>
+      <section className="wb-filter-panel" id="wb-filter-panel" aria-label="筛选与显示" hidden={!filtersOpen}>
+        <div className="wb-filter-grid">
+          {!details && <label>范围 <select value={view.scope} onChange={(event) => commitView({ scope: event.target.value as SearchScope })}>
+            <option value="all">全部</option>
+            <option value="workspaces">工作区</option>
+            <option value="sessions">会话</option>
+          </select></label>}
+          <label>归档 <select
+            value={preferences.archivedFilter}
+            onChange={(event) => updatePreferences({ archivedFilter: event.target.value as ArchivedFilter })}
+          >
+            <option value="active">隐藏已归档</option>
+            <option value="all">全部</option>
+            <option value="archived">仅归档</option>
+          </select></label>
+          {!details && <label>分组 <select
+            value={preferences.groupBy}
+            onChange={(event) => updatePreferences({ groupBy: event.target.value as WorkspaceGroupBy })}
+          >
+            <option value="workspace">工作区</option>
+            <option value="workspace-tree">工作区树</option>
+            <option value="flat">平铺</option>
+          </select></label>}
+          <label className="wb-toggle">
+            <input
+              type="checkbox"
+              checked={preferences.showSubagents}
+              onChange={(event) => updatePreferences({ showSubagents: event.target.checked })}
+            />显示子代理会话
+          </label>
+          <label className="wb-toggle" title="列出所有尚未开始对话的会话，包括未发送的草稿；默认只显示当前打开的那一个">
+            <input
+              type="checkbox"
+              checked={preferences.showBlankSessions}
+              onChange={(event) => updatePreferences({ showBlankSessions: event.target.checked })}
+            />显示空白会话
+          </label>
+          {filterCount > 0 && <button className="wb-reset-filters" type="button" onClick={resetFilters}>重置筛选</button>}
+        </div>
+      </section>
+
+      <div className="wb-settings-row">
+        <button
+          className="wb-settings-toggle"
+          type="button"
+          aria-expanded={settingsOpen}
+          aria-controls="wb-settings-panel"
+          onClick={() => setSettingsOpen((open) => !open)}
+        >设置与说明</button>
+        <section className="wb-settings-panel" id="wb-settings-panel" aria-label="设置与说明" hidden={!settingsOpen}>
+          <label className="wb-toggle" title="用紧凑入口替换 DSH 原生会话树；关闭后立即恢复原生树">
+            <input
+              type="checkbox"
+              checked={preferences.simplifySidebar}
+              onChange={(event) => updatePreferences({ simplifySidebar: event.target.checked })}
+            />简化原生会话树
+          </label>
+          <p className="wb-boundary">浏览偏好保存在本插件独立的浏览器存储，并可在同源标签页间同步；不与原生侧栏同步。这里只搜索会话元数据，不读取对话正文。</p>
+        </section>
+      </div>
     </header>
 
     {notice && <div className="wb-container wb-notice" role="status">

@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   BROWSER_PREFERENCES_KEY,
   NEW_SESSION_LABEL,
+  OPENED_SESSIONS_KEY,
+  appendOpenedSession,
+  groupOpenedSessions,
+  isCurrentSidebarSession,
   ROOT_GROUP_LABEL,
   defaultBrowserPreferences,
   filterSessionIds,
@@ -16,9 +20,11 @@ import {
   prioritizePinnedWorkspaces,
   resolvePreferenceStorage,
   saveBrowserPreferences,
+  sessionBadgeState,
   sessionRowActionsLocked,
   sessionRowTitle,
-  sidebarSessionRows,
+  parseOpenedSessionIds,
+  removeOpenedSession,
   createLatestRequest,
   sortWorkspaces,
   splitHiddenWorkspaces,
@@ -280,7 +286,6 @@ describe('workspace/session browser logic', () => {
       archivedFilter: 'archived',
       showSubagents: true,
       showBlankSessions: true,
-      density: 'comfortable',
       simplifySidebar: false,
     })
     expect(parseBrowserPreferences('{broken')).toEqual(defaultBrowserPreferences())
@@ -303,13 +308,12 @@ describe('workspace/session browser logic', () => {
     expect(legacy.pinnedWorkspaceIds).toEqual(['w1'])
     expect(legacy.showSubagents).toBe(false)
     expect(legacy.showBlankSessions).toBe(false)
-    expect(legacy.density).toBe('compact')
     // The simplified sidebar is opt-in: an older payload keeps the native tree.
     expect(legacy.simplifySidebar).toBe(false)
 
-    const malformed = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, showSubagents: 'yes', density: 'huge' }))
+    const malformed = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, showSubagents: 'yes', density: 'comfortable' }))
     expect(malformed.showSubagents).toBe(false)
-    expect(malformed.density).toBe('compact')
+    expect(malformed).not.toHaveProperty('density')
     expect(malformed.simplifySidebar).toBe(false)
 
     const enabled = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, simplifySidebar: true }))
@@ -330,7 +334,6 @@ describe('workspace/session browser logic', () => {
       ...defaultBrowserPreferences(),
       hiddenWorkspaceIds: ['w1'],
       showSubagents: true,
-      density: 'comfortable' as const,
     }
     expect(saveBrowserPreferences(storage, preferences)).toBe(true)
     expect(writes[0][0]).toBe('dsh-workspace-browser.preferences.v1')
@@ -393,75 +396,41 @@ describe('workspace/session browser logic', () => {
     expect(gate.isCurrent(second)).toBe(true)
   })
 
-  it('picks the open, running, just-finished, then recent sessions', () => {
-    const rows = {
-      s1: session('s1', { running: true, updatedAt: 100 }),
-      s2: session('s2', { running: true, updatedAt: 300 }),
-      s3: session('s3', { updatedAt: 500 }),
-      s4: session('s4', { updatedAt: 400 }),
-      s5: session('s5', { updatedAt: 600 }),
-      s6: session('s6', { origin: 'subagent', running: true, updatedAt: 700 }),
-      s7: session('s7', { blank: true, updatedAt: 800 }),
-    }
-    const owners = new Map([
-      ['s1', { title: 'Alpha' }],
-      ['s2', { title: 'Beta' }],
-      ['s3', { title: 'Gamma' }],
-      ['s4', { title: 'Delta' }],
-    ])
-    const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
-    const picked = sidebarSessionRows({
-      ids,
-      sessionsById: rows,
-      owners,
-      archivedIds: new Set(['s5']),
-      currentSessionId: 's3',
-      finishedIds: ['s4'],
-      limit: 5,
-    })
-    expect(picked.map((row) => [row.id, row.reason])).toEqual([
-      ['s3', 'current'],
-      ['s2', 'running'],
-      ['s1', 'running'],
-      ['s4', 'finished'],
-    ])
-    expect(picked[0].owner).toBe('Gamma')
-    // A provisional session stays out of the shortcuts — unless it is the one
-    // the conversation view is holding.
-    const blankCurrent = sidebarSessionRows({
-      ids,
-      sessionsById: rows,
-      currentSessionId: 's7',
-      limit: 1,
-    })
-    expect(blankCurrent).toEqual([{
-      id: 's7',
-      title: NEW_SESSION_LABEL,
-      reason: 'current',
-      running: false,
-      owner: undefined,
-      updatedAt: 800,
-    }])
-    // The limit trims from the back; the open session is never dropped.
-    expect(sidebarSessionRows({ ids, sessionsById: rows, currentSessionId: 's3', limit: 1 }).map((row) => row.id)).toEqual(['s3'])
-    expect(sidebarSessionRows({ ids, sessionsById: rows, limit: 0 })).toEqual([])
+  it('preserves opened-session shortcuts and validates stored ids', () => {
+    expect(parseOpenedSessionIds('["a","a","",12,"b"]')).toEqual(['a', 'b'])
+    expect(parseOpenedSessionIds('{broken')).toEqual([])
+    expect(appendOpenedSession(['a', 'b'], 'a')).toEqual(['a', 'b'])
+    expect(appendOpenedSession(['a', 'b'], 'c')).toEqual(['a', 'b', 'c'])
+    expect(removeOpenedSession(['a', 'b', 'a'], 'a')).toEqual(['b'])
+    expect(OPENED_SESSIONS_KEY).toBe('dsh-workspace-browser.opened-sessions.v1')
   })
 
-  it('fills the shortcut list with recent history when nothing is active', () => {
-    const rows = {
-      a: session('a', { updatedAt: 10 }),
-      b: session('b', { updatedAt: 30 }),
-      c: session('c', { updatedAt: 20 }),
-    }
-    expect(sidebarSessionRows({
-      ids: ['a', 'b', 'c'],
-      sessionsById: rows,
-      owners: new Map([['b', { title: 'Beta' }]]),
-      limit: 2,
-    })).toEqual([
-      { id: 'b', title: 'b', reason: 'recent', running: false, owner: 'Beta', updatedAt: 30 },
-      { id: 'c', title: 'c', reason: 'recent', running: false, owner: undefined, updatedAt: 20 },
+  it('groups opened-session shortcuts by current workspace ownership in first-added order', () => {
+    const rows: WorkspaceRecord[] = [
+      { workspaceId: 'w2', title: 'Beta', path: '/work/beta', sessionIds: ['b'] },
+      { workspaceId: 'w1', title: 'Alpha', path: '/work/alpha', sessionIds: ['a', 'c'] },
+    ]
+    expect(groupOpenedSessions(['a', 'b', 'c', 'unknown'], rows)).toEqual([
+      { workspaceId: 'w1', title: 'Alpha', path: '/work/alpha', ids: ['a', 'c'] },
+      { workspaceId: 'w2', title: 'Beta', path: '/work/beta', ids: ['b'] },
+      { workspaceId: undefined, title: '未分组', path: undefined, ids: ['unknown'] },
     ])
+  })
+
+  it('does not mark a conversation current while a global panel is active', () => {
+    expect(isCurrentSidebarSession('s1', 's1', false)).toBe(true)
+    expect(isCurrentSidebarSession('s1', 's1', true)).toBe(false)
+    expect(isCurrentSidebarSession('s2', 's1', false)).toBe(false)
+  })
+
+  it('prioritizes unified status without inferring completion from transitions', () => {
+    expect(sessionBadgeState({ running: false, pendingInteraction: { kind: 'approval' }, completionUnread: true }, true).kind).toBe('approval')
+    expect(sessionBadgeState({ running: true, pendingInteraction: { kind: 'plan-review' }, completionUnread: false }, true).kind).toBe('question')
+    expect(sessionBadgeState({ running: true, pendingInteraction: undefined, completionUnread: true }, false).kind).toBe('running')
+    expect(sessionBadgeState({ running: undefined, pendingInteraction: undefined, completionUnread: true }, false).kind).toBe('completed')
+    expect(sessionBadgeState({ running: false, pendingInteraction: undefined, completionUnread: false }, false, true)).toEqual({ kind: 'running', label: '子代理运行中', glyph: '●' })
+    expect(sessionBadgeState(undefined, true).kind).toBe('running')
+    expect(sessionBadgeState(undefined, false).kind).toBe('idle')
   })
 
   it('handles a large in-memory session catalog without opening history', () => {

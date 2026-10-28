@@ -13,11 +13,13 @@
  * asks it for its add dialog — otherwise that action would be unreachable
  * while the native tree is shadowed.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useSyncExternalStore } from 'react'
 import {
-  indexWorkspaceOwners,
+  groupOpenedSessions,
+  isCurrentSidebarSession,
   loadBrowserPreferences,
-  sidebarSessionRows,
+  sessionBadgeState,
+  sessionRowTitle,
   type BrowserPreferences,
 } from '../logic.js'
 import { PANEL_ID } from '../panel.js'
@@ -37,6 +39,7 @@ import {
   type WorkspaceCatalogSnapshot,
 } from './runtime.js'
 import { sidebarStyles } from './styles.js'
+import { createOpenedSessionController, type OpenedSessionStore } from './openedSessions.js'
 
 /** Lowest live priority wins; the native occupant registers at the default 0. */
 const SHADOW_PRIORITY = -100
@@ -51,73 +54,42 @@ export interface SidebarEntryOwnerProps {
 
 export interface CompactSidebarEntryProps extends SidebarEntryOwnerProps {
   readonly layout: PluginRuntime['layout']
+  readonly sessionStatus: PluginRuntime['uiSession']['sessionStatus']
   readonly workspaces: Source<WorkspaceCatalogSnapshot>
   readonly sessions: Source<SessionCatalogSnapshot>
   /** Open a session in the native conversation view. */
   readonly openSession: (sessionId: string) => void
+  readonly openedSessions: OpenedSessionStore
 }
 
 /**
- * Simplified wide entry: a launcher, the sessions worth resuming, and the
- * explicit way back to DSH's own tree. The rail variant stays a single icon.
- *
- * The session shortcuts are view-local: the Host catalog has no unread flag,
- * so "finished" is derived by watching a running row stop running while it is
- * not the open session. Recent history fills the remaining slots, which keeps
- * the entry useful even when a session finished before it was installed.
+ * Simplified wide entry: a launcher, a persistent list of sessions the user
+ * actually entered, and an explicit way back to DSH's native tree. The rail
+ * variant stays a single icon.
  */
 export function CompactSidebarEntry({
   wide,
   expandSidebar,
   layout,
+  sessionStatus,
   workspaces,
   sessions,
   openSession,
+  openedSessions,
 }: CompactSidebarEntryProps): React.JSX.Element {
   const workspaceSnapshot = useSource(workspaces)
   const sessionSnapshot = useSource(sessions)
+  const statusSnapshot = useSource(sessionStatus)
+  const panelInfo = useSource(layout.panelInfo)
+  const globalPanelActive = panelInfo.activePanelId !== null
+  const openedIds = useSyncExternalStore(openedSessions.subscribe, openedSessions.getSnapshot, openedSessions.getSnapshot)
   const items = workspaceSnapshot.items ?? []
   const sessionIds = sessionSnapshot.ids ?? []
   const sessionsById = sessionSnapshot.byId ?? {}
-
-  const owners = useMemo(() => indexWorkspaceOwners(items), [items])
-  const archived = useMemo(
-    () => new Set(workspaceSnapshot.archivedSessionIds ?? []),
-    [workspaceSnapshot.archivedSessionIds],
-  )
+  const groups = useMemo(() => groupOpenedSessions(openedIds, items), [openedIds, items])
+  const archived = useMemo(() => new Set(workspaceSnapshot.archivedSessionIds ?? []), [workspaceSnapshot.archivedSessionIds])
   const selection = readSessionSelection(sessionIds, sessionsById)
   const currentSessionId = selection.known ? selection.currentSessionId : undefined
-
-  // View-local completion tracker; see the component comment.
-  const runningRef = useRef<ReadonlySet<string> | null>(null)
-  const [finishedIds, setFinishedIds] = useState<readonly string[]>([])
-
-  useEffect(() => {
-    const running = new Set(sessionIds.filter((id) => sessionsById[id]?.running === true))
-    const previous = runningRef.current
-    runningRef.current = running
-    if (!previous) return
-    const finished = [...previous].filter((id) => !running.has(id) && sessionsById[id] !== undefined)
-    if (finished.length === 0) return
-    setFinishedIds((current) => [...new Set([...finished, ...current])].slice(0, 8))
-  }, [sessionIds, sessionsById])
-
-  useEffect(() => {
-    if (!currentSessionId) return
-    setFinishedIds((current) => current.includes(currentSessionId)
-      ? current.filter((id) => id !== currentSessionId)
-      : current)
-  }, [currentSessionId])
-
-  const sessionRows = useMemo(() => sidebarSessionRows({
-    ids: sessionIds,
-    sessionsById,
-    owners,
-    archivedIds: archived,
-    currentSessionId,
-    finishedIds,
-    limit: 5,
-  }), [sessionIds, sessionsById, owners, archived, currentSessionId, finishedIds])
 
   const openBrowser = () => {
     if (!wide) expandSidebar?.()
@@ -140,8 +112,11 @@ export function CompactSidebarEntry({
   }
 
   const openSessionById = (id: string) => {
-    setFinishedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current)
     try {
+      if (archived.has(id)) {
+        layout.selectPanel(PANEL_ID)
+        return
+      }
       openSession(id)
     } catch (error) {
       console.warn('dsh-workspace-browser: 无法打开会话。', error)
@@ -149,15 +124,18 @@ export function CompactSidebarEntry({
   }
 
   if (!wide) {
-    return <button
-      className="wb-sidebar-rail"
-      type="button"
-      title="工作区浏览器（展开侧栏）"
-      aria-label="工作区浏览器"
-      onClick={openBrowser}
-    >
-      <PanelIcon size={18} />
-    </button>
+    return <>
+      <style>{sidebarStyles}</style>
+      <button
+        className="wb-sidebar-rail"
+        type="button"
+        title="工作区浏览器（展开侧栏）"
+        aria-label="工作区浏览器"
+        onClick={openBrowser}
+      >
+        <PanelIcon size={18} />
+      </button>
+    </>
   }
 
   const count = items.length
@@ -171,34 +149,56 @@ export function CompactSidebarEntry({
         {loading ? '读取中…' : `${count} 个`}
       </span>
     </div>
-    <button className="wb-sidebar-entry-primary" type="button" onClick={openBrowser}>
+    <button className={`wb-sidebar-entry-primary${panelInfo.activePanelId === PANEL_ID ? ' is-active' : ''}`} type="button" aria-current={panelInfo.activePanelId === PANEL_ID ? 'page' : undefined} onClick={openBrowser}>
       <PanelIcon size={16} />
       <span>打开工作区浏览器</span>
     </button>
 
-    {sessionRows.length > 0 && <div className="wb-sidebar-sessions" aria-label="当前与最近会话">
+    <div className="wb-sidebar-sessions" aria-label="已打开会话">
       <div className="wb-sidebar-sessions-head">
-        <span>当前与最近</span>
-        <span>{sessionRows.length} 项</span>
+        <span>已打开会话</span>
+        <span>{openedIds.length} 项</span>
       </div>
-      {sessionRows.map((row) => <button
-        key={row.id}
-        type="button"
-        className="wb-sidebar-session"
-        title={`${row.title}${row.owner ? ` · ${row.owner}` : ''}`}
-        onClick={() => openSessionById(row.id)}
-      >
-        <span className={row.running ? 'wb-sidebar-session-dot is-running' : 'wb-sidebar-session-dot'} />
-        <span className="wb-sidebar-session-body">
-          <span className="wb-sidebar-session-line">
-            <span className="wb-sidebar-session-title">{row.title}</span>
-            {row.reason === 'current' && <span className="wb-sidebar-session-state">当前</span>}
-            {row.reason === 'finished' && <span className="wb-sidebar-session-state">刚完成</span>}
-          </span>
-          {row.owner && <span className="wb-sidebar-session-owner">{row.owner}</span>}
-        </span>
-      </button>)}
-    </div>}
+      {groups.length === 0 && <p className="wb-sidebar-empty">进入会话后会显示在这里</p>}
+      {groups.map((group) => <section className="wb-sidebar-group" key={group.workspaceId === undefined ? 'unowned' : `workspace:${group.workspaceId}`}>
+        <h3 className="wb-sidebar-group-title" title={group.path}>{group.title}</h3>
+        {group.ids.map((id) => {
+          const session = sessionsById[id]
+          if (!session) return null
+          if (session.origin === 'subagent') return null
+          const isArchived = archived.has(id)
+          const isCurrent = isCurrentSidebarSession(id, currentSessionId, globalPanelActive)
+          const status = statusSnapshot.get(id as Parameters<typeof statusSnapshot.get>[0])
+          const childIds = sessionSnapshot.projectionsBySession?.[id]?.values?.subagentCatalog
+          const runningChild = childIds?.some((child) => {
+            const childStatus = statusSnapshot.get(child.id as Parameters<typeof statusSnapshot.get>[0])
+            return (childStatus?.running ?? sessionsById[child.id]?.running) === true
+          }) === true
+          const badge = sessionBadgeState(status, session.running, runningChild)
+          return <div className={`wb-sidebar-session${isCurrent ? ' is-current' : ''}`} key={id}>
+            <button
+              type="button"
+              className="wb-sidebar-session-open"
+              title={isArchived ? '此会话已归档；请在工作区浏览器中筛选归档后恢复' : sessionRowTitle(session)}
+              aria-current={isCurrent ? 'page' : undefined}
+              aria-label={`${sessionRowTitle(session)}，${badge.label}${isArchived ? '，已归档' : ''}`}
+              disabled={isArchived}
+              onClick={() => openSessionById(id)}
+            >
+              <span className={`wb-sidebar-session-status is-${badge.kind}`} aria-hidden="true" title={badge.label}>{badge.glyph}</span>
+              <span className="wb-sidebar-session-title">{sessionRowTitle(session)}</span>
+            </button>
+            <button
+              type="button"
+              className="wb-sidebar-session-remove"
+              aria-label={`从已打开会话中移除：${sessionRowTitle(session)}`}
+              title="仅移除此快捷入口，不会关闭或删除会话"
+              onClick={() => openedSessions.remove(id)}
+            >×</button>
+          </div>
+        })}
+      </section>)}
+    </div>
 
     <div className="wb-sidebar-entry-actions">
       <button type="button" onClick={addWorkspace}>
@@ -296,17 +296,26 @@ export function createSidebarController(deps: SidebarControllerDeps): () => void
  * removes any contribution.
  */
 export function installSidebarEntry(runtime: PluginRuntime): void {
-  runtime.slots.inject('sidebar.workspaces', () => createSidebarController({
-    slots: runtime.slots,
-    readPreferences: () => loadBrowserPreferences(browserPreferenceStorage()),
-    subscribePreferences: subscribeBrowserPreferences,
-    writePreferences: updateBrowserPreferences,
-    component: (props: SidebarEntryOwnerProps) => <CompactSidebarEntry
-      {...props}
-      layout={runtime.layout}
-      workspaces={runtime.workspaces.list}
-      sessions={runtime.sessions.list}
-      openSession={(sessionId) => runtime.uiWorkspace.openSession(sessionId)}
-    />,
-  }))
+  runtime.slots.inject('sidebar.workspaces', () => {
+    const opened = createOpenedSessionController(runtime.sessions.list)
+    const disposeSidebar = createSidebarController({
+      slots: runtime.slots,
+      readPreferences: () => loadBrowserPreferences(browserPreferenceStorage()),
+      subscribePreferences: subscribeBrowserPreferences,
+      writePreferences: updateBrowserPreferences,
+      component: (props: SidebarEntryOwnerProps) => <CompactSidebarEntry
+        {...props}
+        layout={runtime.layout}
+        sessionStatus={runtime.uiSession.sessionStatus}
+        workspaces={runtime.workspaces.list}
+        sessions={runtime.sessions.list}
+        openSession={(sessionId) => runtime.uiWorkspace.openSession(sessionId)}
+        openedSessions={opened.store}
+      />,
+    })
+    return () => {
+      disposeSidebar()
+      opened.dispose()
+    }
+  })
 }

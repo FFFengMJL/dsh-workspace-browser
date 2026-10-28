@@ -71,7 +71,7 @@ vm.runInNewContext(source, { window: browserWindow })
 assert.equal(definition?.id, 'dsh-workspace-browser', `${label} registers under an unexpected module id`)
 const plugin = definition.factory(createRequire(import.meta.url))
 assert.equal(typeof plugin.apply, 'function', `${label} does not export apply()`)
-assert.deepEqual([...plugin.inject], ['slots', 'sessions', 'workspaces', 'remote', 'uiWorkspace', 'layout'])
+assert.deepEqual([...plugin.inject], ['slots', 'sessions', 'workspaces', 'remote', 'uiWorkspace', 'uiSession', 'layout'])
 
 // The host entry is an ordinary ESM module; DSH imports it before any client
 // code runs. It must stay importable and side-effect free.
@@ -109,7 +109,8 @@ const runtime = {
       truncated: false,
     }),
   },
-  layout: { selectPanel() {} },
+  uiSession: { sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} } },
+  layout: { panelInfo: { getSnapshot: () => ({ activePanelId: null }), subscribe: () => () => {} }, selectPanel() {} },
   remote: {
     // Mirrors the remote shape: business refusals arrive as `ok: false`.
     session: { rename: async () => ({ ok: false, error: { code: 'session/rename-denied', message: 'denied' } }) },

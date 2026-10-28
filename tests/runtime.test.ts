@@ -184,6 +184,7 @@ describe('browser service adapter', () => {
       delete: async () => {},
     },
     sessions: { list: source({ ids: [], byId: {} }) },
+    uiSession: { sessionStatus: source(new Map()) },
     uiWorkspace: {
       openSession: () => {},
       startSession: () => {},
@@ -201,7 +202,7 @@ describe('browser service adapter', () => {
       })),
     },
     remote: { session: { rename: async () => ({ ok: true }) } },
-    layout: { selectPanel: () => {} },
+    layout: { panelInfo: source({ activePanelId: null }), selectPanel: () => {} },
   })
 
   it('maps a created workspace to the row the panel renders', async () => {

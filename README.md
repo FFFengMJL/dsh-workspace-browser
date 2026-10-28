@@ -11,12 +11,12 @@ The bulk of this plugin's implementation, its refactors, and the related documen
 - Workspace grid and detail view, with registry/name/recent-activity ordering and native workspace reordering.
 - Workspace cards keep only pin, new session, and a "more" control on the card (icon buttons, one line); hide, rename, move up/down, and delete live in an overflow menu with keyboard, Escape, and outside-click handling.
 - Add workspace from the panel: type an existing absolute directory on the DSH host, or browse host directories when the Host composes the in-app directory backend; repeat paths resolve to the existing workspace.
-- Optional "simplify native session tree": off by default; when on, a compact entry replaces DSH's native workspace/session area and lists the open session, running sessions, sessions that just finished (running → idle transitions observed by the entry), and recent history with their owning workspace; clicking opens the conversation. Turning it off (or unloading the plugin) restores the native tree.
-- Metadata search across workspace names/paths and session titles/IDs, with all/workspace/session scopes.
+- Optional "simplify native session tree": off by default; when on, a compact entry replaces DSH's native workspace/session area. Its "Opened sessions" list records sessions only when actually entered, groups them by current workspace, preserves manual-entry order, and persists locally; removing a shortcut never closes or deletes the session. Turning it off (or unloading the plugin) restores the native tree.
+- Metadata search across workspace names/paths and session titles/IDs, with all/workspace/session scopes. A compact toolbar separates search and sorting from expandable filters and plugin settings.
 - Workspace, parent-directory grouping, and flat-session views; ungrouped sessions are shown without scanning disk or changing ownership.
 - Delegated subagent sessions are hidden by default and can be shown with a toggle; the marker comes from the catalog's `origin` field, so ordinary forks stay visible.
 - Blank sessions (`blank`) follow the native session tree by default: only the one you have open is listed, labelled "New session / not started yet", and it leaves the list when you switch away. Nothing is deleted — switch on "Show blank sessions" to list every unsent draft and search it by metadata.
-- Compact (default) and comfortable density for the workspace grid and session rows.
+- One consistent compact density. A legacy saved "comfortable" value is ignored without resetting other preferences.
 - Selective restore for hidden workspaces: search the list, restore individual entries, restore a checked subset, or restore everything.
 - Session manual/recent ordering, archive filters, native pin/rename/archive/restore, fork, copy ID, and new-session actions.
 - Workspace rename and delete through DSH's public workspace service; deleting removes only the registration, keeps the folder and session logs, and returns those sessions to Ungrouped.
@@ -29,7 +29,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.2/dsh-workspace-browser-0.1.2.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.3/dsh-workspace-browser-0.1.3.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -49,8 +49,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.1.2.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.2.tgz"
+sha256sum -c dsh-workspace-browser-0.1.3.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.3.tgz"
 ```
 
 ### From a local checkout (development)
@@ -66,12 +66,12 @@ The only verified target is DSH `0.2.1-rc.4`; that is what `dsh.compatibility` i
 ## Scope and known limitations
 
 - Search matches catalog metadata only; it never searches conversation bodies.
-- Grouping, ordering, archive filter, density, subagent visibility, workspace pin/hide, and the simplified sidebar preference persist under the plugin-owned versioned browser key `dsh-workspace-browser.preferences.v1` and synchronize across same-origin tabs via `storage` events. They do not sync with the native sidebar or other browser profiles. If browser storage is unavailable, preferences remain in memory for the current page only. Search, detail view, and scroll position remain transient.
+- Grouping, ordering, archive filter, subagent visibility, workspace pin/hide, and the simplified-sidebar preference persist under the plugin-owned versioned browser key `dsh-workspace-browser.preferences.v1`; opened-session IDs have a separate key, `dsh-workspace-browser.opened-sessions.v1`. Neither stores session titles, paths, or bodies. Same-origin tabs synchronize through local and storage events, with an unavoidable narrow last-writer race because localStorage does not offer transactional read-modify-write; writes refused by the browser fall back to in-memory state. The preference schema remains unchanged; an old saved density field is ignored while every other preference is preserved. Search, detail view, filter expansion, and scroll position remain transient.
 - Rename uses the public `ctx.remote.session.rename` endpoint without rewriting session logs. Archiving a running session requires an in-page confirmation and then requests stop-and-archive through the native workspace service.
 - Forking does not navigate automatically; the result notice offers an explicit open action.
 - Workspace creation goes through the public `workspaces.create({ path })`: the path must be an existing directory on the DSH host, and canonicalization, existence, permissions, and repeat-path reuse are Host decisions. The plugin does not create directories or scan disk. In-app browsing calls `uiWorkspace.listDirectory`; a Host composed with the native picker only reports that browsing is unavailable, and the path field remains usable. Session deletion/migration and repair of old session ownership remain out of scope.
 - "Simplify native session tree" shadows the whole native workspace/session area (header, search, list, and its dialogs) through a lower-priority `sidebar.workspaces` registration. While shadowed, the native search and add-workspace shortcuts still belong to the native registration and may target an unmounted view; use "restore native tree" in the entry when you need them or native conversation-content search. It is an optional compact navigation mode, not a complete replacement for the native tree.
-- The compact entry's session shortcut list is capped at five rows: the open session first, then running sessions, then sessions that finished while the entry was watching, then recent history. Archived rows, delegated subagents, and ordinary blank sessions are omitted (a blank session still appears when it is the open one). The Host catalog has no unread flag, so "just finished" is a view-local running → idle transition, not durable state; transitions that happen while the entry is not mounted (for example while the native tree is shown) are not backfilled, and the recent list covers them.
+- The compact entry does not backfill recent history and has no five-row cap; it records sessions actually entered, seeding at most the reliably selected current session when first upgraded. The current row is highlighted without a "current" tag. Leading status icons use DSH's public unified UI status in priority order: pending interaction, running, unread completion reminder, idle. `completionUnread` is DSH's process-local observed reminder, not durable unread state; if unified status is unavailable, the icon falls back only to catalog running metadata. Delegated subagents are omitted. Archived shortcuts remain listed but cannot be opened directly; use the workspace browser to filter and restore them.
 
 Workspace pin/hide markers are plugin-owned browser preferences. They do not change native order, registration, or session ownership. Uninstalling the plugin does not clear its browser preference key. Session pin/archive and workspace reorder/rename/delete actions use DSH public services.
 
@@ -90,7 +90,7 @@ Individual steps: `pnpm typecheck`, `pnpm test`, `pnpm build`, `pnpm test:bundle
 
 `pnpm check:package` writes the release tarball to `.release/` (git-ignored), unpacks it, and asserts the manifest DSH reads, the exact file set, the loader contract inside the unpacked package, no development paths or secrets, and a SHA-256 checksum. `pnpm pack` runs `pnpm check` through `prepack`, so a tarball is never produced from an unverified build.
 
-Tests cover metadata search, membership derivation, archive and subagent filtering, ordering, pin priority, hidden-workspace splitting, parent-path grouping, workspace-title and path pre-checks, manual move boundaries, Host failure text, directory-listing normalization, compact-sidebar lifecycle and session selection, cross-tab preference merging and refused-write fallback, preference migration, and synthetic 10,000-session catalogs. They do not inspect local DSH session bodies or production data.
+Tests cover metadata search, membership derivation, archive and subagent filtering, ordering, pin priority, hidden-workspace splitting, parent-path grouping, workspace-title and path pre-checks, manual move boundaries, Host failure text, directory-listing normalization, compact-sidebar lifecycle and complete selection, opened-session ordering/removal/grouping/pruning and storage fallback, unified status priority, cross-tab preference merging, legacy density compatibility, and synthetic 10,000-session catalogs. They do not inspect local DSH session bodies or production data.
 
 ### Source layout
 
@@ -102,11 +102,12 @@ Tests cover metadata search, membership derivation, archive and subagent filteri
 | `src/ui/WorkspaceBrowser.tsx` | Panel state, derived lists, DSH action wiring. |
 | `src/ui/cards.tsx` | Presentational workspace card (with its overflow menu) and session row. |
 | `src/ui/dialogs.tsx` | Accessible modal shell, archive/rename/delete confirmations, add-workspace path/browse flow, hidden-workspace manager. |
-| `src/ui/sidebar.tsx` | Optional compact sidebar entry, its open/recent session shortcuts, and the preference-driven shadow controller. |
+| `src/ui/sidebar.tsx` | Optional compact sidebar entry, shortcuts for entered sessions, and the preference-driven shadow controller. |
 | `src/ui/icons.tsx` | Shared inline SVG icons; no icon dependency. |
 | `src/ui/intents.ts` | One-shot add-workspace intent from the sidebar entry to the panel. |
-| `src/ui/preferences.ts` | Preference loading, persistence, and same-tab/cross-tab sync. |
-| `src/ui/styles.ts` | Single injected stylesheet; density lives in CSS custom properties, with separate sidebar-entry styles. |
+| `src/ui/preferences.ts` | Display preference loading, persistence, and same-tab/cross-tab sync. |
+| `src/ui/openedSessions.ts` | Entered-session ID records, safe catalog pruning, and browser-local synchronization. |
+| `src/ui/styles.ts` | Single injected stylesheet; the main panel uses one compact layout, with separate sidebar-entry styles. |
 | `src/logic.ts` | React-free data rules (filter, sort, group, preference parsing) covered by tests. |
 | `scripts/check-bundle.mjs` | Replays the DSH client loader contract and the injected service port. |
 | `scripts/check-package.mjs` | Packs, unpacks, and verifies the installable tarball. |
@@ -130,7 +131,7 @@ The manifest carries the canonical `repository`, `homepage`, and `bugs` fields, 
 
 ## Safety and data
 
-The plugin subscribes only to workspace and session catalog snapshots. Its persisted preferences contain workspace IDs and filter enums only; they do not store session bodies or paths. It does not scan project directories, read credentials or conversation history, add model tools, modify host source, or edit DSH-generated state. Uninstalling it does not delete or move DSH data.
+The plugin subscribes to workspace/session catalog snapshots and the public session UI-status snapshot. Persisted state contains opaque workspace/session IDs and display/filter preferences only; it does not store conversation bodies, titles, or paths. The plugin does not scan project directories, read credentials or conversation history, add model tools, modify host source, or edit DSH-generated state. Uninstalling it does not delete or move DSH data.
 
 ## Contributing and support
 

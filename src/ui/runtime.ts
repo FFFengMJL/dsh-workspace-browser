@@ -13,6 +13,7 @@
  * and never inspect their contents.
  */
 import { useCallback, useSyncExternalStore } from 'react'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionRecord, SessionSelection, WorkspaceRecord } from '../logic.js'
 
 /**
@@ -56,10 +57,15 @@ export interface HostSessionRow extends SessionRecord {
 
 /** Session catalog projection (`ctx.sessions.list`); metadata only. */
 export interface SessionCatalogSnapshot {
-  /** Host list order; every id has a matching `byId` row. */
+  /** Host list order; every id has a matching `byId` row when phase is ready. */
   readonly ids?: readonly string[]
   readonly byId?: Readonly<Record<string, HostSessionRow>>
-  readonly state?: 'idle' | 'loading' | 'error'
+  /** Public Session Controller baseline lifecycle; only `ready` proves catalog completeness. */
+  readonly phase?: 'pending' | 'ready'
+  /** Direct-child projection, when public catalog metadata has materialized it. */
+  readonly projectionsBySession?: Readonly<Record<string, {
+    readonly values?: { readonly subagentCatalog?: readonly { readonly id: string }[] }
+  }>>
 }
 
 /**
@@ -252,6 +258,9 @@ export interface PluginRuntime {
     list: Source<SessionCatalogSnapshot>
   }
   uiWorkspace: WorkspaceActions
+  uiSession: {
+    readonly sessionStatus: Source<SessionStatusSnapshot>
+  }
   remote: {
     session: {
       rename(request: { sessionId: string; title: string }): Promise<{
@@ -262,6 +271,7 @@ export interface PluginRuntime {
   }
   /** Panel navigation used by the compact sidebar entry. */
   layout: {
+    readonly panelInfo: Source<{ readonly activePanelId: string | null }>
     selectPanel(panelId: string | null): void
   }
 }
