@@ -17,6 +17,10 @@ coverage/
 *.log
 pnpm-debug.log*
 
+# Personal agent instructions; keep shared AGENTS.md tracked.
+AGENTS.local.md
+CLAUDE.local.md
+
 # Editor and OS noise.
 .vscode/
 .idea/
