@@ -259,6 +259,13 @@ export const styles: string = `
 }
 .wb-root[data-density='compact'] .wb-session-title { font-size: 13.5px; }
 .wb-session-actions { flex: 0 0 auto; padding: 0 10px 0 0; }
+/* A provisional session is not history yet: dashed edge instead of a solid
+   card, and the title reads lighter than a real conversation title. */
+.wb-session-blank {
+  border-style: dashed;
+  background: transparent;
+}
+.wb-session-blank .wb-session-title { font-weight: 560; color: var(--wb-muted); }
 .wb-badge {
   border-radius: 999px;
   border: 1px solid var(--wb-border);

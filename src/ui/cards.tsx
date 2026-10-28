@@ -6,7 +6,7 @@
  * snapshot derivation in one place (`WorkspaceBrowser.tsx`).
  */
 import React from 'react'
-import type { SessionRecord, WorkspaceRecord } from '../logic.js'
+import { BLANK_SESSION_HINT, sessionRowActionsLocked, sessionRowTitle, type SessionRecord, type WorkspaceRecord } from '../logic.js'
 
 /** Session actions the browser exposes on every row. */
 export type SessionAction = 'pin' | 'archive' | 'fork' | 'copy'
@@ -76,11 +76,15 @@ export function SessionRow({
   onRename,
 }: SessionRowProps): React.JSX.Element {
   const delegated = session.origin === 'subagent'
-  const title = session.title || session.displayTitle || '未命名会话'
-  return <article className="wb-session">
+  const title = sessionRowTitle(session)
+  // A provisional session has no conversation to rename or fork yet, so those
+  // two controls stay off; opening it is exactly how the user resumes the draft.
+  const locked = sessionRowActionsLocked(session)
+  return <article className={session.blank === true ? 'wb-session wb-session-blank' : 'wb-session'}>
     <button className="wb-session-open" type="button" onClick={onOpen} title={session.displayTitle}>
       <span className="wb-session-heading">
         <span className="wb-session-title">{title}</span>
+        {session.blank === true && <span className="wb-badge" title="尚未开始对话的新会话">{BLANK_SESSION_HINT}</span>}
         {delegated && <span className="wb-badge" title="由父会话委派创建的子代理会话">子代理</span>}
         {session.running && <span className="wb-badge wb-badge-live">运行中</span>}
       </span>
@@ -93,8 +97,8 @@ export function SessionRow({
     <div className="wb-session-actions" aria-label="会话操作">
       <button type="button" title={pinned ? '取消置顶' : '置顶'} aria-label={pinned ? '取消置顶' : '置顶'} disabled={busy} onClick={() => onAction('pin')}>{pinned ? '取消置顶' : '置顶'}</button>
       <button type="button" title={archived ? '恢复归档' : '归档'} aria-label={archived ? '恢复归档' : '归档'} disabled={busy} onClick={() => onAction('archive')}>{archived ? '恢复' : '归档'}</button>
-      <button type="button" title="重命名会话" aria-label="重命名会话" disabled={busy} onClick={onRename}>重命名</button>
-      <button type="button" title="分叉会话" aria-label="分叉会话" disabled={busy || archived} onClick={() => onAction('fork')}>分叉</button>
+      <button type="button" title={locked ? '新会话开始对话后才能重命名' : '重命名会话'} aria-label="重命名会话" disabled={busy || locked} onClick={onRename}>重命名</button>
+      <button type="button" title={locked ? '新会话开始对话后才能分叉' : '分叉会话'} aria-label="分叉会话" disabled={busy || locked || archived} onClick={() => onAction('fork')}>分叉</button>
       <button type="button" title="复制会话 ID" aria-label="复制会话 ID" disabled={busy} onClick={() => onAction('copy')}>复制 ID</button>
     </div>
   </article>

@@ -12,6 +12,7 @@ The bulk of this plugin's implementation, its refactors, and the related documen
 - Metadata search across workspace names/paths and session titles/IDs, with all/workspace/session scopes.
 - Workspace, parent-directory grouping, and flat-session views; ungrouped sessions are shown without scanning disk or changing ownership.
 - Delegated subagent sessions are hidden by default and can be shown with a toggle; the marker comes from the catalog's `origin` field, so ordinary forks stay visible.
+- Blank sessions (`blank`) follow the native session tree by default: only the one you have open is listed, labelled "New session / not started yet", and it leaves the list when you switch away. Nothing is deleted — switch on "Show blank sessions" to list every unsent draft and search it by metadata.
 - Compact (default) and comfortable density for the workspace grid and session rows.
 - Selective restore for hidden workspaces: search the list, restore individual entries, restore a checked subset, or restore everything.
 - Session manual/recent ordering, archive filters, native pin/rename/archive/restore, fork, copy ID, and new-session actions.
@@ -24,7 +25,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.0/dsh-workspace-browser-0.1.0.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.1/dsh-workspace-browser-0.1.1.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -44,8 +45,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.1.0.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.0.tgz"
+sha256sum -c dsh-workspace-browser-0.1.1.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.1.tgz"
 ```
 
 ### From a local checkout (development)
@@ -106,12 +107,14 @@ Comments in these files explain constraints rather than restating code: why `ori
 
 `.github/workflows/release.yml` builds the tarball when you push a `v*` tag and attaches it to a **draft** GitHub Release. The maintainer publishes the draft by hand, so nothing is distributed automatically.
 
+**A release is built from the commit the tag points at.** The workflow checks out `refs/tags/<tag>` explicitly and, before building, asserts that the run came from a tag and that the checked-out `HEAD` equals the commit that triggered the run. It never pulls the tip of `main`, so commits pushed to `main` after tagging cannot slip into the package. A tag names a commit, not a branch: there is no reason to create a branch per release.
+
 1. Set the new version in `package.json` and run `pnpm verify`.
 2. Commit, then `git tag v<version>` and push the tag.
 3. The workflow fails unless the tag equals `v<version>`; it then rebuilds, re-checks the tarball and its checksum, and opens the draft with generated install notes.
 4. Review the draft and press Publish. Until then the asset URL returns nothing; re-running a release for an existing tag fails instead of overwriting published bytes.
 
-CI (`.github/workflows/ci.yml`) runs the same `pnpm verify` on every push and pull request and keeps the tarball as a downloadable artifact, but only Release attaches it to a public page.
+CI (`.github/workflows/ci.yml`) runs the same `pnpm verify` on every push and pull request and keeps the tarball as a downloadable artifact. That copy only proves `main` still builds; it is **not** the release source, and the Release workflow does not consume it.
 
 The manifest carries the canonical `repository`, `homepage`, and `bugs` fields, so a package tarball links back to this project.
 

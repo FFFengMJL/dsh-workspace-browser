@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   BROWSER_PREFERENCES_KEY,
+  NEW_SESSION_LABEL,
   ROOT_GROUP_LABEL,
   defaultBrowserPreferences,
   filterSessionIds,
@@ -15,10 +16,13 @@ import {
   prioritizePinnedWorkspaces,
   resolvePreferenceStorage,
   saveBrowserPreferences,
+  sessionRowActionsLocked,
+  sessionRowTitle,
   sortWorkspaces,
   splitHiddenWorkspaces,
   type SessionFilterOptions,
   type SessionRecord,
+  type SessionSelection,
   type WorkspaceRecord,
 } from '../src/logic.js'
 
@@ -44,6 +48,12 @@ const filter = (
   pinnedIds: ReadonlySet<string> = new Set(),
   extra: Partial<SessionFilterOptions> = {},
 ): string[] => filterSessionIds({ ids, sessionsById: rows, archivedIds, pinnedIds, ...extra })
+
+/** Catalog selection states, named so the blank-rule cases read as intent. */
+const openSelection: SessionSelection = { currentSessionId: 'open', known: true }
+const staleSelection: SessionSelection = { currentSessionId: 'stale', known: true }
+const closedSelection: SessionSelection = { known: true }
+const unknownSelection: SessionSelection = { known: false }
 
 describe('workspace/session browser logic', () => {
   it('searches metadata case-insensitively without requiring message content', () => {
@@ -78,6 +88,97 @@ describe('workspace/session browser logic', () => {
       .toEqual(['root', 'child', 'fork', 'inherited'])
     // Explicit opt-in must not resurrect rows hidden by another rule.
     expect(filter(['root', 'child'], rows, new Set(), new Set(), { showSubagents: true, query: 'root' })).toEqual(['root'])
+  })
+
+  it('keeps only the open provisional session and hides the abandoned ones', () => {
+    const rows = {
+      sent: session('sent', { blank: false }),
+      open: session('open', { blank: true }),
+      stale: session('stale', { blank: true }),
+      // A row without the flag predates it or came from another producer: it
+      // must keep its old behaviour rather than be guessed at.
+      legacy: session('legacy'),
+    }
+    const ids = ['sent', 'open', 'stale', 'legacy']
+    // Without holder information the rule stays off — showing a provisional
+    // row is recoverable, hiding the one being edited is not.
+    expect(filter(ids, rows)).toEqual(ids)
+    expect(filter(ids, rows, new Set(), new Set(), { selection: unknownSelection })).toEqual(ids)
+    // The catalog does report holders and none is open: every blank is stale.
+    expect(filter(ids, rows, new Set(), new Set(), { selection: closedSelection })).toEqual(['sent', 'legacy'])
+    // The session the user is sitting in remains visible; the others do not.
+    expect(filter(ids, rows, new Set(), new Set(), { selection: openSelection }))
+      .toEqual(['sent', 'open', 'legacy'])
+    // Clicking New Session elsewhere moves the visible blank, it does not add one.
+    expect(filter(ids, rows, new Set(), new Set(), { selection: staleSelection }))
+      .toEqual(['sent', 'stale', 'legacy'])
+  })
+
+  it('never matches a provisional session in a query', () => {
+    const rows = {
+      open: session('open', { title: 'Cep', blank: true }),
+      sent: session('sent', { title: 'Cep work' }),
+    }
+    // Both rows belong to the same workspace, so only the blank rule can
+    // separate them: the workspace name matches, the provisional row does not.
+    const owners = new Map([['open', workspaces[0]], ['sent', workspaces[0]]])
+    expect(filter(['open', 'sent'], rows, new Set(), new Set(), { selection: openSelection }))
+      .toEqual(['open', 'sent'])
+    // Title, id and owning workspace are all excluded for a blank row.
+    expect(filter(['open', 'sent'], rows, new Set(), new Set(), { selection: openSelection, query: 'cep' }))
+      .toEqual(['sent'])
+    expect(filter(['open', 'sent'], rows, new Set(), new Set(), { selection: openSelection, query: 'open' }))
+      .toEqual([])
+    expect(filter(['open', 'sent'], rows, new Set(), new Set(), { selection: openSelection, query: 'alpha', owners }))
+      .toEqual(['sent'])
+    // A provisional row has no history to search even when the catalog cannot
+    // name the open session.
+    expect(filter(['open', 'sent'], rows, new Set(), new Set(), { selection: unknownSelection, query: 'cep' }))
+      .toEqual(['sent'])
+  })
+
+  it('lists and searches every provisional session once the switch is on', () => {
+    const rows = {
+      open: session('open', { title: 'Cep', blank: true }),
+      stale: session('stale', { title: 'Old draft', blank: true }),
+      sent: session('sent', { title: 'Cep work' }),
+    }
+    const ids = ['open', 'stale', 'sent']
+    // Default: only the open provisional row.
+    expect(filter(ids, rows, new Set(), new Set(), { selection: openSelection })).toEqual(['open', 'sent'])
+    // Opt-in: the abandoned draft comes back, which is the whole point.
+    expect(filter(ids, rows, new Set(), new Set(), { selection: openSelection, showBlankSessions: true }))
+      .toEqual(['open', 'stale', 'sent'])
+    // The opt-in also makes it findable by the metadata it does have.
+    expect(filter(ids, rows, new Set(), new Set(), { showBlankSessions: true, query: 'draft' })).toEqual(['stale'])
+    // Every other rule still applies to those rows.
+    expect(filter(ids, rows, new Set(['stale']), new Set(), { showBlankSessions: true })).toEqual(['open', 'sent'])
+  })
+
+  it('does not let a pin, an archive view or the subagent switch resurrect a blank row', () => {
+    const rows = { open: session('open', { blank: true }), stale: session('stale', { blank: true }) }
+    expect(filter(['stale', 'open'], rows, new Set(), new Set(['stale']), { selection: openSelection }))
+      .toEqual(['open'])
+    expect(filter(['open', 'stale'], rows, new Set(), new Set(), { selection: openSelection, archivedFilter: 'all' }))
+      .toEqual(['open'])
+    expect(filter(['open', 'stale'], rows, new Set(), new Set(), { selection: closedSelection, showSubagents: true }))
+      .toEqual([])
+    // Once a turn starts the row is ordinary history again.
+    const started = { ...rows, open: session('open', { blank: false }) }
+    expect(filter(['open', 'stale'], started, new Set(), new Set(), { selection: closedSelection })).toEqual(['open'])
+  })
+
+  it('labels a provisional row as a new session and locks rename/fork', () => {
+    const blank = session('blank', { blank: true, title: 'cep_szocs', displayTitle: 'cep_szocs' })
+    expect(sessionRowTitle(blank)).toBe(NEW_SESSION_LABEL)
+    expect(sessionRowActionsLocked(blank)).toBe(true)
+    const sent = session('sent', { blank: false, title: 'Fix the release', displayTitle: 'fallback' })
+    expect(sessionRowTitle(sent)).toBe('Fix the release')
+    expect(sessionRowActionsLocked(sent)).toBe(false)
+    // Unnamed history keeps the neutral fallback, and legacy rows stay editable.
+    expect(sessionRowTitle({ ...sent, title: '' })).toBe('fallback')
+    expect(sessionRowTitle({ ...sent, title: '', displayTitle: '' })).toBe('未命名会话')
+    expect(sessionRowActionsLocked({ ...sent, blank: undefined })).toBe(false)
   })
 
   it('matches the owning workspace only when an owner index is supplied', () => {
@@ -147,6 +248,7 @@ describe('workspace/session browser logic', () => {
       sessionOrder: 'recent',
       archivedFilter: 'archived',
       showSubagents: true,
+      showBlankSessions: true,
       density: 'comfortable',
     }))
     expect(parsed).toEqual({
@@ -158,6 +260,7 @@ describe('workspace/session browser logic', () => {
       sessionOrder: 'recent',
       archivedFilter: 'archived',
       showSubagents: true,
+      showBlankSessions: true,
       density: 'comfortable',
     })
     expect(parseBrowserPreferences('{broken')).toEqual(defaultBrowserPreferences())
@@ -179,6 +282,7 @@ describe('workspace/session browser logic', () => {
     expect(legacy.groupBy).toBe('workspace-tree')
     expect(legacy.pinnedWorkspaceIds).toEqual(['w1'])
     expect(legacy.showSubagents).toBe(false)
+    expect(legacy.showBlankSessions).toBe(false)
     expect(legacy.density).toBe('compact')
 
     const malformed = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, showSubagents: 'yes', density: 'huge' }))

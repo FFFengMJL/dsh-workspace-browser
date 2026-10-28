@@ -2,6 +2,9 @@ name: CI
 
 # Every push and pull request verifies the same artifact the release workflow
 # publishes: a packed tarball that DSH can install without a build step.
+#
+# This run proves the default branch still builds. Its tarball is a verification
+# copy only — releases are built from the tag by release.yml, never from here.
 on:
   push:
     branches: [main]
@@ -43,6 +46,7 @@ jobs:
       # an unpacked-package check (manifest, file set, loader contract, checksum).
       - run: pnpm verify
 
+      # Convenience copy for inspecting a build; releases do not use it.
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dsh-workspace-browser-package

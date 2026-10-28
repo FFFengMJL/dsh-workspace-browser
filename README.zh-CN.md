@@ -12,6 +12,7 @@
 - 工作区名称、路径、会话标题和 ID 的元数据搜索；支持全部、工作区、会话范围。
 - 工作区／路径父目录分组／全部会话视图；显示未分组会话，不扫描磁盘、不自动改会话归属。
 - 子代理会话默认隐藏，可按开关显示；判定依据是目录元数据里的 `origin` 字段，普通分叉会话仍然保留。
+- 空白会话（`blank`）默认与原生会话树一致：只显示当前打开的那一个，标为“新会话 / 尚未开始对话”，切走即隐藏，搜索不命中。需要找回未发送的草稿时，打开“显示空白会话”开关即可列出全部并由元数据搜索。
 - 紧凑（默认）与标准两档显示密度，同时作用于工作区卡片和会话行。
 - 隐藏工作区支持选择性恢复：可筛选列表、逐项恢复、恢复勾选项，或恢复全部。
 - 会话最近／手动顺序、归档筛选、原生会话置顶、重命名、归档与恢复、fork、复制 ID、新会话。
@@ -24,7 +25,7 @@
 ### 从 Release 压缩包安装（推荐）
 
 1. 打开一个**已发布**的 Release，复制其 `.tgz` 附件地址，例如
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.0/dsh-workspace-browser-0.1.0.tgz`。
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.1/dsh-workspace-browser-0.1.1.tgz`。
    草稿状态的 Release 不提供可下载附件，发布后该地址才会生效。
 2. 安装到运行 Web 界面的 profile：
 
@@ -44,8 +45,8 @@ DSH 支持用 npm 包名、git 地址或压缩包地址安装插件。本项目�
 ```sh
 curl -fLO <压缩包地址>
 curl -fLO <压缩包地址>.sha256
-sha256sum -c dsh-workspace-browser-0.1.0.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.0.tgz"
+sha256sum -c dsh-workspace-browser-0.1.1.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.1.tgz"
 ```
 
 ### 从本地源码安装（开发用）
@@ -106,12 +107,14 @@ pnpm verify     # 类型检查、测试、构建、loader 冒烟，再打包并�
 
 `.github/workflows/release.yml` 在推送 `v*` 标签时构建压缩包，并创建**草稿** GitHub Release。需要维护者手动发布，因此不会自动分发。
 
+**发布产物只来自标签指向的那次提交。** 工作流显式按触发用的 `refs/tags/<tag>` 检出，并在构建前校验触发事件是标签、检出的 `HEAD` 等于触发该次运行的提交；因此它不会去取 `main` 的最新状态，`main` 在打标签之后又多出的提交不会被计入发布包。标签指向提交，而非分支：不需要（也不应）为一次发布去建同名分支。
+
 1. 修改 `package.json` 版本号并运行 `pnpm verify`。
 2. 提交后执行 `git tag v<版本号>` 并推送该标签。
 3. 标签与 `v<版本号>` 不一致时工作流直接失败；一致时才重新构建、复验压缩包与校验文件，并生成带安装命令的草稿。
 4. 审核草稿后点击发布；发布前附件地址不可下载。对已存在的标签重跑发布会失败，不会覆盖已发布的字节。
 
-CI（`.github/workflows/ci.yml`）在每次推送和 PR 上运行同一套 `pnpm verify`，并保留可下载的压缩包制品；只有 Release 会把它附到公开页面。
+CI（`.github/workflows/ci.yml`）在每次推送和 PR 上运行同一套 `pnpm verify`，并保留可下载的压缩包制品；那里的压缩包只是验证副本，用于确认 main 上仍可构建，**不是**发布来源，也不会被 Release 工作流取用。
 
 清单中的 `repository`、`homepage`、`bugs` 已指向本仓库，安装包会带回项目地址。
 

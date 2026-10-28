@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-browser",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A workspace-first browser for DSH sessions",
   "packageManager": "pnpm@12.15.0",
   "type": "module",

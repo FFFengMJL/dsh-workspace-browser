@@ -24,7 +24,6 @@ import {
   type ArchivedFilter,
   type SearchScope,
   type SessionOrder,
-  type SessionRecord,
   type WorkspaceGroupBy,
   type WorkspaceOrder,
   type WorkspaceRecord,
@@ -32,7 +31,7 @@ import {
 import { SessionRow, WorkspaceCard, type SessionAction } from './cards.js'
 import { ArchiveConfirmDialog, HiddenWorkspacesDialog, RenameDialog } from './dialogs.js'
 import { useBrowserPreferences } from './preferences.js'
-import { useSource, type BrowserServices } from './runtime.js'
+import { readSessionSelection, useSource, type BrowserServices, type HostSessionRow } from './runtime.js'
 import { styles } from './styles.js'
 
 /** Session rows rendered before the "load more" control appears. */
@@ -40,7 +39,7 @@ const SESSION_PAGE_SIZE = 80
 
 /** Stable empty values so memo dependencies do not churn on every render. */
 const EMPTY_WORKSPACES: readonly WorkspaceRecord[] = []
-const EMPTY_SESSIONS: Readonly<Record<string, SessionRecord>> = {}
+const EMPTY_SESSIONS: Readonly<Record<string, HostSessionRow>> = {}
 
 /** Per-panel view state that is not worth persisting to storage. */
 interface ViewState {
@@ -140,14 +139,21 @@ export function WorkspaceBrowser({
     archivedFilter: preferences.archivedFilter,
     order: preferences.sessionOrder,
     showSubagents: preferences.showSubagents,
+    showBlankSessions: preferences.showBlankSessions,
+    // Keep the provisional session the user is actually sitting in, and drop
+    // the ones a previous visit left behind — same rule as the native tree.
+    // `showBlankSessions` above overrides this whole rule on purpose.
+    selection: readSessionSelection(sessionIds, sessionsById),
   }), [
     sessionsById,
+    sessionIds,
     archivedIds,
     pinnedIds,
     view.query,
     preferences.archivedFilter,
     preferences.sessionOrder,
     preferences.showSubagents,
+    preferences.showBlankSessions,
   ])
 
   /**
@@ -191,6 +197,7 @@ export function WorkspaceBrowser({
     preferences.archivedFilter,
     preferences.groupBy,
     preferences.showSubagents,
+    preferences.showBlankSessions,
   ])
 
   // Restore the scroll position once per mount; later scrolling is user intent.
@@ -494,6 +501,14 @@ export function WorkspaceBrowser({
             onChange={(event) => updatePreferences({ showSubagents: event.target.checked })}
           />
           显示子代理会话
+        </label>
+        <label className="wb-toggle" title="列出所有尚未开始对话的会话，包括未发送的草稿；默认只显示当前打开的那一个">
+          <input
+            type="checkbox"
+            checked={preferences.showBlankSessions}
+            onChange={(event) => updatePreferences({ showBlankSessions: event.target.checked })}
+          />
+          显示空白会话
         </label>
       </div>
 

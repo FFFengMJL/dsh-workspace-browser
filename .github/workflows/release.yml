@@ -5,6 +5,12 @@ name: Release
 # tarball URL; publishing a tarball keeps npm out of the pipeline and means users
 # never compile this plugin or approve its build scripts.
 #
+# The build source is the *tag*, never the tip of `main`: checkout pins
+# `refs/tags/<tag>` and the "Assert tagged source" step proves the tree came from
+# the commit that triggered this run. A tag names a commit, so no per-release
+# branch is involved, and commits landed on `main` after tagging cannot drift
+# into a published artifact.
+#
 # Maintainer flow: bump version in package.json, run `pnpm verify` locally, then
 # push a tag `v<version>` (for example v0.1.0). The run opens a *draft* release;
 # review it and press Publish. Nothing is distributed until that manual step.
@@ -23,6 +29,7 @@ concurrency:
 
 jobs:
   package:
+    name: Package from tag
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -30,6 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          # Pin the ref that triggered the run instead of the default branch.
+          ref: ${{ github.ref }}
           persist-credentials: false
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
@@ -40,6 +49,25 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+
+      # Prove the artifact will describe the tag, not whatever is on main. Both
+      # checks are cheap and fail before any dependency is installed.
+      - name: Assert tagged source
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${REF_TYPE}" != "tag" ]; then
+            echo "::error::release must be triggered by a tag, got ${REF_TYPE}"
+            exit 1
+          fi
+          head=$(git rev-parse HEAD)
+          if [ "${head}" != "${EVENT_SHA}" ]; then
+            echo "::error::checked out ${head}, but tag ${REF_NAME} resolves to ${EVENT_SHA}"
+            exit 1
+          fi
 
       # A tag that disagrees with the manifest would publish a version nobody
       # asked for; fail before building anything.
@@ -68,11 +96,14 @@ jobs:
           retention-days: 30
 
   publish:
+    name: Publish draft from this tag's build
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The only job that writes: upload assets to a draft release. The workflow
-    # uses GitHub's built-in token, never an npm credential.
+    # uses GitHub's built-in token, never an npm credential. It deliberately
+    # consumes the artifact from the package job above rather than any CI run,
+    # so the published bytes are the ones built from this tag.
     permissions:
       contents: write
     steps:

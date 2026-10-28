@@ -13,7 +13,7 @@
  * and never inspect their contents.
  */
 import { useCallback, useSyncExternalStore } from 'react'
-import type { SessionRecord, WorkspaceRecord } from '../logic.js'
+import type { SessionRecord, SessionSelection, WorkspaceRecord } from '../logic.js'
 
 /**
  * Observable snapshot source: the shape `useSyncExternalStore` needs.
@@ -36,12 +36,62 @@ export interface WorkspaceCatalogSnapshot {
   readonly state?: 'idle' | 'loading' | 'error'
 }
 
+/**
+ * One session row exactly as the Host projects it into `ctx.sessions.list`.
+ *
+ * The pure logic model (`SessionRecord` in `logic.ts`) stays host-agnostic, so
+ * host-only bookkeeping is declared here, at the adapter boundary, and never
+ * leaks into the filtering rules. Two Host facts matter to this panel:
+ *
+ * - `blank` means "no turn has started". It does **not** mean "no draft": an
+ *   unsent message can live in a blank session, which is why DSH keeps the
+ *   identity around instead of discarding it.
+ * - `retainedBy` counts local holders (the main conversation view and others).
+ *   It is a UI retention counter, never conversation content.
+ */
+export interface HostSessionRow extends SessionRecord {
+  /** Local holder counts keyed by purpose; `mainView` marks the open session. */
+  readonly retainedBy?: Readonly<Record<string, number>>
+}
+
 /** Session catalog projection (`ctx.sessions.list`); metadata only. */
 export interface SessionCatalogSnapshot {
   /** Host list order; every id has a matching `byId` row. */
   readonly ids?: readonly string[]
-  readonly byId?: Readonly<Record<string, SessionRecord>>
+  readonly byId?: Readonly<Record<string, HostSessionRow>>
   readonly state?: 'idle' | 'loading' | 'error'
+}
+
+/**
+ * Read what the catalog says about the session currently open.
+ *
+ * Mirrors the Host's own rule (`mainView` retention > 0, first match in list
+ * order), so lists derived here agree with the native session tree.
+ *
+ * Holder metadata is trusted only when it is complete. The installed Host
+ * writes `retainedBy` on every row (it falls back to an empty holder map, not
+ * to omission), but that is an implementation detail of one version, not a
+ * contract: a truncated or re-synthesized snapshot could carry the field on
+ * some rows only. A missing field on the row that happens to be the open draft
+ * would then read as "nothing is open" and hide that draft.
+ *
+ * The whole list therefore decides `known`, and any unreadable row downgrades
+ * the result to "unknown" — even when a holder was already seen, because the
+ * caller must not act on a snapshot we could only read halfway.
+ */
+export function readSessionSelection(
+  ids: readonly string[],
+  byId: Readonly<Record<string, HostSessionRow>>,
+): SessionSelection {
+  if (ids.length === 0) return { known: false }
+  let currentSessionId: string | undefined
+  for (const id of ids) {
+    const row = byId[id]
+    if (!row || row.retainedBy === undefined) return { known: false }
+    // First positive match in list order, the same row the Host picks.
+    if (currentSessionId === undefined && (row.retainedBy.mainView ?? 0) > 0) currentSessionId = id
+  }
+  return { currentSessionId, known: true }
 }
 
 /**

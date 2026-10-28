@@ -82,6 +82,12 @@ export interface BrowserPreferences {
   archivedFilter: ArchivedFilter
   /** Whether delegated (subagent) sessions are listed. Defaults to `false`. */
   showSubagents: boolean
+  /**
+   * Whether every provisional session is listed, not just the open one.
+   * Defaults to `false`, matching the native tree. Turning it on is the way to
+   * find a session whose draft was never sent, which is otherwise invisible.
+   */
+  showBlankSessions: boolean
   /** Card density. Defaults to `'compact'`. */
   density: DisplayDensity
 }
@@ -100,6 +106,7 @@ export function defaultBrowserPreferences(): BrowserPreferences {
     sessionOrder: 'manual',
     archivedFilter: 'active',
     showSubagents: false,
+    showBlankSessions: false,
     density: 'compact',
   }
 }
@@ -135,6 +142,7 @@ export function parseBrowserPreferences(raw: string | null): BrowserPreferences 
       sessionOrder: record.sessionOrder === 'recent' ? 'recent' : 'manual',
       archivedFilter: record.archivedFilter === 'all' || record.archivedFilter === 'archived' ? record.archivedFilter : 'active',
       showSubagents: record.showSubagents === true,
+      showBlankSessions: record.showBlankSessions === true,
       density: record.density === 'comfortable' ? 'comfortable' : 'compact',
     }
   } catch {
@@ -218,6 +226,18 @@ export interface SessionFilterOptions {
   /** When `false` (default), `origin === 'subagent'` rows are omitted. */
   readonly showSubagents?: boolean
   /**
+   * When `true`, every provisional (`blank`) session is listed, not just the
+   * one currently open. The explicit opt-in also makes them searchable, which
+   * is the point: an unsent draft is otherwise unfindable.
+   */
+  readonly showBlankSessions?: boolean
+  /**
+   * What the catalog can say about the session currently open, used by the
+   * blank rule below. Omitted when the panel has no such information at all,
+   * which is the same as `known: false`.
+   */
+  readonly selection?: SessionSelection
+  /**
    * Optional session → owning workspace index. When present, a query also
    * matches the workspace title and path, which is what the global search box
    * promises. Workspace detail views omit it on purpose: there the query is
@@ -227,11 +247,33 @@ export interface SessionFilterOptions {
 }
 
 /**
- * Apply archive, subagent, query, pin and order rules in one place.
+ * What the catalog knows about the session currently open.
+ *
+ * `known: false` means the catalog reported no holder information at all: the
+ * panel cannot tell a provisional row from an abandoned one, so it must not
+ * hide any of them — an unknown state is not evidence that nothing is open.
+ */
+export interface SessionSelection {
+  /** Session the main view holds, when one is open. */
+  readonly currentSessionId?: string
+  /** Whether the catalog reports holder information at all. */
+  readonly known: boolean
+}
+
+/**
+ * Apply archive, subagent, blank, query, pin and order rules in one place.
  *
  * Every list in the panel (workspace cards, detail, flat list, search results,
  * ungrouped section) goes through this function so the counts and the rows can
  * never disagree.
+ *
+ * The blank rule mirrors the native session tree: a blank session is
+ * provisional, so by default only the one currently open stays visible and a
+ * search never matches it. `showBlankSessions` turns that rule off for users
+ * who want to find a session whose draft was never sent. Two states keep their
+ * old behaviour instead of guessing, because both would otherwise hide rows the
+ * panel cannot reason about: a row without a `blank` flag, and a catalog
+ * without holder information.
  */
 export function filterSessionIds(options: SessionFilterOptions): string[] {
   const { ids, sessionsById, archivedIds, pinnedIds } = options
@@ -239,12 +281,20 @@ export function filterSessionIds(options: SessionFilterOptions): string[] {
   const archivedFilter = options.archivedFilter ?? 'active'
   const order = options.order ?? 'manual'
   const showSubagents = options.showSubagents ?? false
+  const showBlankSessions = options.showBlankSessions ?? false
+  const selection = options.selection
   const owners = options.owners
+  const searching = normalizeQuery(query) !== ''
 
   const visible = ids.filter((id) => {
     const session = sessionsById[id]
     if (!session) return false
     if (!showSubagents && session.origin === 'subagent') return false
+    if (session.blank === true && !showBlankSessions) {
+      // A provisional session has no history to search, so it never matches.
+      if (searching) return false
+      if (selection?.known === true && id !== selection.currentSessionId) return false
+    }
     const archived = archivedIds.has(id)
     if (archivedFilter === 'active' && archived) return false
     if (archivedFilter === 'archived' && !archived) return false
@@ -262,6 +312,29 @@ export function filterSessionIds(options: SessionFilterOptions): string[] {
     return (manualOrder.get(a) ?? Number.MAX_SAFE_INTEGER) - (manualOrder.get(b) ?? Number.MAX_SAFE_INTEGER)
   })
   return visible
+}
+
+/** Label the native tree uses for a session that has not started a turn. */
+export const NEW_SESSION_LABEL: string = '新会话'
+
+/** Second line for a provisional row: says what it is, not what it lacks. */
+export const BLANK_SESSION_HINT: string = '尚未开始对话'
+
+/**
+ * Title for one session row.
+ *
+ * A blank session has no title of its own yet — the host would fall back to a
+ * directory name, which reads like real history — so the provisional label
+ * wins. Unnamed history keeps the neutral fallback.
+ */
+export function sessionRowTitle(session: SessionRecord): string {
+  if (session.blank === true) return NEW_SESSION_LABEL
+  return session.title || session.displayTitle || '未命名会话'
+}
+
+/** Rename and fork need a started conversation, so a blank row offers neither. */
+export function sessionRowActionsLocked(session: SessionRecord): boolean {
+  return session.blank === true
 }
 
 /** Sort by registry order, title, or latest activity inside the workspace. */
