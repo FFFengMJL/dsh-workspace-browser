@@ -112,9 +112,9 @@ jobs:
           {
             echo "DSH workspace browser plugin, version ${VERSION}."
             echo
-            echo "> This is a draft until you publish it. GitHub does not serve"
-            echo "> \`/releases/download/\` URLs for draft assets, so the commands below"
-            echo "> only work after the release is published."
+            echo "> GitHub does not serve \`/releases/download/\` URLs for draft"
+            echo "> releases. If this page is still a draft, publish it before running"
+            echo "> the commands below."
             echo
             echo "Install into a profile (DSH registers the bundle on install; restart the profile afterwards):"
             echo
