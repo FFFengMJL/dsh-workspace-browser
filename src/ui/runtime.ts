@@ -109,12 +109,81 @@ const WORKSPACE_FAILURE_TEXT: Readonly<Record<string, string>> = {
   'workspace/name-conflict': '该名称已被其他工作区使用，请换一个。',
   'gateway/bad-request': '工作区名称不能为空。',
   'workspace/not-found': '该工作区已不存在，可能已在其他地方被删除。',
+  'workspace/invalid-path': '该路径在运行 DSH 的主机上不是一个可用的目录，请检查路径是否存在、是否可读。',
 }
 
 export function workspaceFailureMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
   const code = /^workspace [a-z ]+ failed: ([^:\s]+):/.exec(raw)?.[1]
   return (code !== undefined ? WORKSPACE_FAILURE_TEXT[code] : undefined) ?? raw
+}
+
+/** One directory row returned by the Host directory picker. */
+export interface DirectoryEntryInfo {
+  readonly name: string
+  readonly path: string
+  /** Host marks dot-directories and similar hidden entries. */
+  readonly hidden?: boolean
+}
+
+/** One Host directory listing, reduced to what the add dialog renders. */
+export interface DirectoryListingInfo {
+  readonly path: string
+  /** Host home directory, used as the browse starting point. */
+  readonly home?: string
+  readonly crumbs: readonly DirectoryEntryInfo[]
+  readonly entries: readonly DirectoryEntryInfo[]
+  /** The Host stopped listing early; the view must say so. */
+  readonly truncated: boolean
+}
+
+/**
+ * Normalize an untrusted directory listing.
+ *
+ * The listing crosses the remote transport, so a malformed row must be
+ * dropped rather than crash the dialog; only identity fields are kept.
+ */
+export function normalizeDirectoryListing(raw: unknown): DirectoryListingInfo {
+  const record = raw !== null && typeof raw === 'object' ? raw as Record<string, unknown> : {}
+  const entry = (value: unknown): DirectoryEntryInfo | null => {
+    if (value === null || typeof value !== 'object') return null
+    const item = value as Record<string, unknown>
+    if (typeof item.name !== 'string' || typeof item.path !== 'string') return null
+    return item.hidden === true
+      ? { name: item.name, path: item.path, hidden: true }
+      : { name: item.name, path: item.path }
+  }
+  const entries = (value: unknown): DirectoryEntryInfo[] => Array.isArray(value)
+    ? value.map(entry).filter((item): item is DirectoryEntryInfo => item !== null)
+    : []
+  return {
+    path: typeof record.path === 'string' ? record.path : '',
+    home: typeof record.home === 'string' ? record.home : undefined,
+    crumbs: entries(record.crumbs),
+    entries: entries(record.entries),
+    truncated: record.truncated === true,
+  }
+}
+
+/** User-facing text for a refused directory listing. */
+const DIRECTORY_FAILURE_TEXT: Readonly<Record<string, string>> = {
+  'directory-picker/unavailable': '当前 DSH 运行环境未启用应用内目录浏览，请直接输入主机上的绝对目录路径。',
+  'directory-picker/not-found': '该目录不存在或无法访问。',
+  'directory-picker/not-a-directory': '该路径不是目录。',
+  'directory-picker/denied': '没有读取该目录的权限。',
+}
+
+/**
+ * Recover a friendly directory-browse message from a structured refusal.
+ *
+ * The client wraps a failed listing in `DirectoryBrowseError`, whose
+ * `rpcError.code` is the only stable part; an unrecognized shape falls back to
+ * the transport text instead of inventing a cause.
+ */
+export function directoryFailureMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const code = (error as { rpcError?: { code?: unknown } } | null | undefined)?.rpcError?.code
+  return (typeof code === 'string' ? DIRECTORY_FAILURE_TEXT[code] : undefined) ?? raw
 }
 
 /**
@@ -134,11 +203,26 @@ export interface WorkspaceActions {
   unpinSession(sessionId: string): Promise<void>
   /** @returns the created child session id. */
   forkSession(sessionId: string): Promise<string>
+  /**
+   * List one Host directory level for the add-workspace dialog.
+   *
+   * The Host backend decides whether this is available; a native-only
+   * composition refuses with `directory-picker/unavailable`, which the caller
+   * surfaces while keeping the manual path field usable.
+   */
+  listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListingInfo>
 }
 
 /** Registry mutations: manual order plus the workspace's own registration. */
 export interface WorkspaceRegistryActions {
   insertBefore(workspaceId: string, beforeWorkspaceId?: string): Promise<void>
+  /**
+   * Register an existing Host directory.
+   *
+   * Path canonicalization, existence, permissions and repeat-path resolution
+   * are Host decisions; the returned row is the authoritative workspace.
+   */
+  create(path: string): Promise<WorkspaceRecord>
   /** Rename through the public client service; throws a user-facing error on refusal. */
   rename(workspaceId: string, title: string): Promise<void>
   /** Remove the registration only; DSH keeps the directory and every session log. */
@@ -154,6 +238,12 @@ export interface PluginRuntime {
   workspaces: {
     list: Source<WorkspaceCatalogSnapshot>
     insertBefore(workspaceId: string, beforeWorkspaceId?: string): Promise<void>
+    create(input: { path: string }): Promise<{
+      readonly workspaceId: string
+      readonly title: string
+      readonly path: string
+      readonly sessionIds?: readonly string[]
+    }>
     /** Return value is unused: the client service merges the row itself. */
     rename(workspaceId: string, title: string): Promise<unknown>
     delete(workspaceId: string): Promise<void>
@@ -170,7 +260,10 @@ export interface PluginRuntime {
       } | undefined>
     }
   }
-  layout: unknown
+  /** Panel navigation used by the compact sidebar entry. */
+  layout: {
+    selectPanel(panelId: string | null): void
+  }
 }
 
 /** Props injected into {@link import('./WorkspaceBrowser.js').WorkspaceBrowser}. */
@@ -190,12 +283,45 @@ export interface BrowserServices {
  * remote transport to be ready.
  */
 export function createBrowserServices(runtime: PluginRuntime): BrowserServices {
+  const ui = runtime.uiWorkspace
   return {
     workspaces: runtime.workspaces.list,
     sessions: runtime.sessions.list,
-    uiWorkspace: runtime.uiWorkspace,
+    // Delegate instead of spreading: the Host service may expose prototype
+    // methods, and `listDirectory` is the one method this adapter wraps.
+    uiWorkspace: {
+      openSession: (sessionId) => ui.openSession(sessionId),
+      startSession: (workspaceId) => ui.startSession(workspaceId),
+      archiveSession: (sessionId, options) => ui.archiveSession(sessionId, options),
+      unarchiveSession: (sessionId) => ui.unarchiveSession(sessionId),
+      pinSession: (sessionId) => ui.pinSession(sessionId),
+      unpinSession: (sessionId) => ui.unpinSession(sessionId),
+      forkSession: (sessionId) => ui.forkSession(sessionId),
+      listDirectory: async (path, signal) => {
+        try {
+          return normalizeDirectoryListing(await ui.listDirectory(path, signal))
+        } catch (error) {
+          // Preserve the structured refusal as `cause`, but give the dialog a
+          // message it can show without knowing the remote error taxonomy.
+          throw new Error(directoryFailureMessage(error), { cause: error })
+        }
+      },
+    },
     workspaceController: {
       insertBefore: (workspaceId, beforeWorkspaceId) => runtime.workspaces.insertBefore(workspaceId, beforeWorkspaceId),
+      create: async (path) => {
+        try {
+          const created = await runtime.workspaces.create({ path })
+          return {
+            workspaceId: created.workspaceId,
+            title: created.title,
+            path: created.path,
+            sessionIds: created.sessionIds ?? [],
+          }
+        } catch (error) {
+          throw new Error(workspaceFailureMessage(error), { cause: error })
+        }
+      },
       rename: async (workspaceId, title) => {
         try {
           await runtime.workspaces.rename(workspaceId, title)

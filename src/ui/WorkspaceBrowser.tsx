@@ -21,6 +21,8 @@ import {
   prioritizePinnedWorkspaces,
   sortWorkspaces,
   splitHiddenWorkspaces,
+  workspaceMoveAnchor,
+  workspacePathProblem,
   workspaceTitleProblem,
   type ArchivedFilter,
   type SearchScope,
@@ -30,7 +32,8 @@ import {
   type WorkspaceRecord,
 } from '../logic.js'
 import { SessionRow, WorkspaceCard, type SessionAction } from './cards.js'
-import { ArchiveConfirmDialog, DeleteWorkspaceDialog, HiddenWorkspacesDialog, RenameDialog, WorkspaceRenameDialog } from './dialogs.js'
+import { AddWorkspaceDialog, ArchiveConfirmDialog, DeleteWorkspaceDialog, HiddenWorkspacesDialog, RenameDialog, WorkspaceRenameDialog } from './dialogs.js'
+import { consumeAddWorkspaceIntent, onAddWorkspaceRequest } from './intents.js'
 import { useBrowserPreferences } from './preferences.js'
 import { readSessionSelection, useSource, workspaceFailureMessage, type BrowserServices, type HostSessionRow } from './runtime.js'
 import { styles } from './styles.js'
@@ -97,6 +100,11 @@ export function WorkspaceBrowser({
   const [workspaceDelete, setWorkspaceDelete] = useState<{ workspaceId: string; title: string } | null>(null)
   const [workspaceDialogBusy, setWorkspaceDialogBusy] = useState(false)
   const [workspaceDialogError, setWorkspaceDialogError] = useState<string | null>(null)
+  // Adding a workspace owns a long-lived dialog (path field plus browsing), so
+  // its busy/error state stays separate from the rename/delete pair.
+  const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false)
+  const [addWorkspaceBusy, setAddWorkspaceBusy] = useState(false)
+  const [addWorkspaceError, setAddWorkspaceError] = useState<string | null>(null)
 
   const workspaces = workspaceSnapshot?.items ?? EMPTY_WORKSPACES
   const sessionsById = sessionSnapshot?.byId ?? EMPTY_SESSIONS
@@ -129,6 +137,12 @@ export function WorkspaceBrowser({
   const orderedWorkspaces = useMemo(
     () => prioritizePinnedWorkspaces(registryOrdered, pinnedWorkspaceIds),
     [registryOrdered, pinnedWorkspaceIds],
+  )
+  // Registry position decides which move directions are possible; pinning and
+  // grouping only change the display, not the manual order.
+  const registryIndex = useMemo(
+    () => new Map(registryOrdered.map((workspace, index) => [workspace.workspaceId, index])),
+    [registryOrdered],
   )
   const visibleWorkspaces = useMemo(
     () => orderedWorkspaces.filter((workspace) => !hiddenWorkspaceIds.has(workspace.workspaceId)),
@@ -223,6 +237,18 @@ export function WorkspaceBrowser({
     if (target > 0) requestAnimationFrame(() => window.scrollTo({ top: target, behavior: 'auto' }))
   }, [])
 
+  // The compact sidebar entry is a separate registration, so it asks through
+  // the intent module. A request that arrives before this panel mounts is
+  // held there and consumed on mount; later ones arrive as an event.
+  useEffect(() => {
+    const open = () => {
+      setAddWorkspaceOpen(true)
+      setAddWorkspaceError(null)
+    }
+    if (consumeAddWorkspaceIntent()) open()
+    return onAddWorkspaceRequest(open)
+  }, [])
+
   const rememberScroll = () => {
     navigationMemory.scrollY = window.scrollY
   }
@@ -309,14 +335,54 @@ export function WorkspaceBrowser({
   const moveWorkspace = async (workspaceId: string, delta: -1 | 1) => {
     // Manual order is the registry order, so neighbours come from the
     // unpinned list: pinning only reorders the display.
-    const index = registryOrdered.findIndex((workspace) => workspace.workspaceId === workspaceId)
-    const target = index + delta
-    if (index < 0 || target < 0 || target >= registryOrdered.length) return
-    const before = delta < 0 ? registryOrdered[target].workspaceId : registryOrdered[target + 1]?.workspaceId
+    const move = workspaceMoveAnchor(registryOrdered, workspaceId, delta)
+    if (!move) return
     try {
-      await workspaceController.insertBefore(workspaceId, before)
+      await workspaceController.insertBefore(move.workspaceId, move.beforeWorkspaceId)
     } catch (error) {
       setNotice({ text: `调整顺序失败：${describeError(error)}` })
+    }
+  }
+
+  const beginAddWorkspace = () => {
+    setAddWorkspaceOpen(true)
+    setAddWorkspaceError(null)
+  }
+
+  /**
+   * Register an existing Host directory.
+   *
+   * The local guard only rejects blank and relative input. Everything else
+   * (existence, permissions, repeat-path reuse) is decided by the Host, and
+   * the returned workspace is authoritative — the panel does not guess whether
+   * it was newly created.
+   */
+  const confirmAddWorkspace = async (path: string) => {
+    const problem = workspacePathProblem(path)
+    if (problem) {
+      setAddWorkspaceError(problem === 'blank'
+        ? '请输入目录路径。'
+        : '请输入运行 DSH 的主机上的绝对路径，例如 /srv/project。')
+      return
+    }
+    setAddWorkspaceBusy(true)
+    setAddWorkspaceError(null)
+    try {
+      const created = await workspaceController.create(path.trim())
+      setAddWorkspaceOpen(false)
+      // A workspace hidden earlier must become visible again, otherwise adding
+      // it would look like nothing happened.
+      if (hiddenWorkspaceIds.has(created.workspaceId)) {
+        updatePreferences({
+          hiddenWorkspaceIds: preferences.hiddenWorkspaceIds.filter((id) => id !== created.workspaceId),
+        })
+      }
+      commitView({ workspaceId: created.workspaceId, query: '', scrollY: 0 })
+      setNotice({ text: `工作区「${created.title}」已就绪。` })
+    } catch (error) {
+      setAddWorkspaceError(workspaceFailureMessage(error))
+    } finally {
+      setAddWorkspaceBusy(false)
     }
   }
 
@@ -423,23 +489,28 @@ export function WorkspaceBrowser({
     </button>}
   </>
 
-  const renderWorkspaceCard = (workspace: WorkspaceRecord) => <WorkspaceCard
-    key={workspace.workspaceId}
-    workspace={workspace}
-    sessionCount={sessionRows(workspace.sessionIds).length}
-    pinned={pinnedWorkspaceIds.has(workspace.workspaceId)}
-    manualOrder={preferences.workspaceOrder === 'manual'}
-    onOpen={() => commitView({ workspaceId: workspace.workspaceId, scrollY: 0 })}
-    onTogglePin={() => toggleWorkspacePin(workspace.workspaceId)}
-    onHide={() => toggleWorkspaceHidden(workspace.workspaceId)}
-    onMove={(delta) => void moveWorkspace(workspace.workspaceId, delta)}
-    onRename={() => beginWorkspaceRename(workspace)}
-    onDelete={() => {
-      setWorkspaceDelete({ workspaceId: workspace.workspaceId, title: workspace.title })
-      setWorkspaceDialogError(null)
-    }}
-    onStartSession={() => startSession(workspace.workspaceId)}
-  />
+  const renderWorkspaceCard = (workspace: WorkspaceRecord) => {
+    const index = registryIndex.get(workspace.workspaceId) ?? -1
+    return <WorkspaceCard
+      key={workspace.workspaceId}
+      workspace={workspace}
+      sessionCount={sessionRows(workspace.sessionIds).length}
+      pinned={pinnedWorkspaceIds.has(workspace.workspaceId)}
+      manualOrder={preferences.workspaceOrder === 'manual'}
+      canMoveUp={index > 0}
+      canMoveDown={index >= 0 && index < registryOrdered.length - 1}
+      onOpen={() => commitView({ workspaceId: workspace.workspaceId, scrollY: 0 })}
+      onTogglePin={() => toggleWorkspacePin(workspace.workspaceId)}
+      onHide={() => toggleWorkspaceHidden(workspace.workspaceId)}
+      onMove={(delta) => void moveWorkspace(workspace.workspaceId, delta)}
+      onRename={() => beginWorkspaceRename(workspace)}
+      onDelete={() => {
+        setWorkspaceDelete({ workspaceId: workspace.workspaceId, title: workspace.title })
+        setWorkspaceDialogError(null)
+      }}
+      onStartSession={() => startSession(workspace.workspaceId)}
+    />
+  }
 
   const renderWorkspaceList = (list: readonly WorkspaceRecord[]) => preferences.groupBy === 'workspace-tree'
     ? <div className="wb-tree-groups">
@@ -496,7 +567,7 @@ export function WorkspaceBrowser({
                   {heading('未分组', `${ungroupedRows.length} 个会话`)}
                   {renderSessionList(ungroupedRows)}
                 </section>}
-                {visibleWorkspaces.length === 0 && <p className="wb-empty">没有已注册的工作区。可从 DSH 原生侧栏添加工作区。</p>}
+                {visibleWorkspaces.length === 0 && <p className="wb-empty">没有已注册的工作区。可以点击「添加工作区」注册一个现有目录。</p>}
               </section>
               : <section className="wb-container wb-section">
                 {heading('全部会话', `${sessionHits.length} 项`)}
@@ -515,6 +586,7 @@ export function WorkspaceBrowser({
           {details && <p className="wb-path" title={details.path}>{details.path}</p>}
         </div>
         {details && <button className="wb-primary" type="button" onClick={() => startSession(details.workspaceId)}>＋ 新会话</button>}
+        {!details && <button className="wb-primary" type="button" onClick={beginAddWorkspace}>＋ 添加工作区</button>}
       </div>
 
       <div className="wb-controls">
@@ -581,6 +653,14 @@ export function WorkspaceBrowser({
           />
           显示空白会话
         </label>
+        <label className="wb-toggle" title="用紧凑入口替换 DSH 原生会话树；关闭后立即恢复原生树">
+          <input
+            type="checkbox"
+            checked={preferences.simplifySidebar}
+            onChange={(event) => updatePreferences({ simplifySidebar: event.target.checked })}
+          />
+          简化原生会话树
+        </label>
       </div>
 
       <p className="wb-boundary">浏览偏好保存在本插件独立的浏览器存储，并可在同源标签页间同步；不与原生侧栏同步。这里只搜索会话元数据，不读取对话正文。</p>
@@ -630,6 +710,13 @@ export function WorkspaceBrowser({
       error={workspaceDialogError}
       onConfirm={() => void confirmWorkspaceDelete()}
       onClose={() => { setWorkspaceDelete(null); setWorkspaceDialogError(null) }}
+    />}
+    {addWorkspaceOpen && <AddWorkspaceDialog
+      busy={addWorkspaceBusy}
+      error={addWorkspaceError}
+      onListDirectory={(target, signal) => uiWorkspace.listDirectory(target, signal)}
+      onSubmit={(path) => void confirmAddWorkspace(path)}
+      onClose={() => { setAddWorkspaceOpen(false); setAddWorkspaceError(null) }}
     />}
 
     <footer className="wb-container wb-footer">数据来自 DSH 工作区与会话目录快照；打开会话时才切换到原生对话页。</footer>

@@ -154,13 +154,13 @@ export const styles: string = `
   gap: var(--wb-card-gap);
 }
 .wb-workspace {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--wb-border);
   border-radius: 14px;
   background: var(--wb-surface);
-  overflow: hidden;
 }
 .wb-workspace-open {
   display: flex;
@@ -171,6 +171,7 @@ export const styles: string = `
   min-width: 0;
   padding: var(--wb-card-padding);
   border: 0;
+  border-radius: 14px 14px 0 0;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -193,11 +194,23 @@ export const styles: string = `
 .wb-workspace-controls, .wb-session-actions {
   display: flex;
   gap: var(--wb-control-gap);
-  flex-wrap: wrap;
   padding: 0 var(--wb-card-padding) var(--wb-card-padding);
 }
-.wb-workspace-controls { margin-top: auto; padding-top: 6px; }
-.wb-workspace-controls button, .wb-session-actions button {
+.wb-session-actions { flex-wrap: wrap; }
+/* One row: pin, new session, more. The divider below the title keeps the
+   card readable in a narrow grid cell. */
+.wb-workspace-controls {
+  position: relative;
+  align-items: center;
+  flex-wrap: nowrap;
+  margin-top: auto;
+  padding-top: 6px;
+}
+.wb-controls-spacer { flex: 1 1 auto; }
+/* Direct children only: the overflow menu is a descendant and has its own
+   borderless row styling. A bare button selector here gave every menu item a
+   control border and overrode the danger colour. */
+.wb-workspace-controls > button, .wb-session-actions > button {
   border: 1px solid var(--wb-border);
   border-radius: 8px;
   background: transparent;
@@ -207,9 +220,82 @@ export const styles: string = `
   line-height: 1.2;
   cursor: pointer;
 }
+.wb-workspace-controls .wb-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+.wb-workspace-controls .wb-icon-button[aria-pressed='true'] {
+  color: var(--wb-accent);
+  border-color: color-mix(in srgb, var(--wb-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--wb-accent) 10%, transparent);
+}
+.wb-workspace-controls .wb-card-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
 /* Destructive workspace action: outlined like its neighbours, red on hover. */
 .wb-workspace-controls .wb-danger-link { color: var(--wb-danger); border-color: color-mix(in srgb, var(--wb-danger) 35%, transparent); }
 .wb-workspace-controls .wb-danger-link:hover:not([disabled]) { background: color-mix(in srgb, var(--wb-danger) 12%, transparent); }
+
+/* ---- Workspace overflow menu ------------------------------------------ */
+/* Opens upward from the card footer, so a card at the bottom of the grid
+   never pushes the menu past the viewport edge. */
+.wb-menu {
+  position: absolute;
+  right: var(--wb-card-padding);
+  bottom: calc(100% - 2px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: max-content;
+  min-width: 152px;
+  max-width: min(232px, calc(100vw - 32px));
+  padding: 4px;
+  border: 1px solid var(--wb-border);
+  border-radius: 10px;
+  background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+.wb-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-menu-item svg { flex: 0 0 auto; }
+.wb-menu-item:hover:not([disabled]) { background: color-mix(in srgb, currentColor 8%, transparent); }
+.wb-menu-item[disabled] { opacity: 0.45; cursor: not-allowed; }
+.wb-menu-danger { color: var(--wb-danger); }
+.wb-menu-danger:hover:not([disabled]) { background: color-mix(in srgb, var(--wb-danger) 12%, transparent); }
+.wb-menu-separator { height: 1px; margin: 4px 2px; background: var(--wb-border); }
+.wb-menu-note {
+  margin: 4px 8px;
+  color: var(--wb-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
 
 /* ---- Workspace tree --------------------------------------------------- */
 .wb-tree-group { margin: 0 0 22px; }
@@ -376,6 +462,90 @@ export const styles: string = `
   font-size: 13px;
 }
 .wb-field input { width: 100%; }
+
+/* ---- Add-workspace browse -------------------------------------------- */
+.wb-browse-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.wb-secondary-inline {
+  border: 1px solid var(--wb-border);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  color: inherit;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.wb-browse-path {
+  min-width: 0;
+  color: var(--wb-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.wb-browse {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--wb-border);
+  border-radius: 10px;
+}
+.wb-browse-crumbs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.wb-browse-crumb {
+  border: 0;
+  background: none;
+  color: var(--wb-accent);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.wb-browse-crumb + .wb-browse-crumb::before { content: '/'; margin-right: 4px; color: var(--wb-muted); }
+.wb-browse-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  list-style: none;
+  overflow: auto;
+}
+.wb-browse-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-browse-entry:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+.wb-browse-hidden { margin-left: auto; color: var(--wb-muted); font-size: 11px; }
+.wb-browse-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--wb-border);
+  border-radius: 8px;
+  background: var(--wb-surface);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
 .wb-hidden-list {
   display: grid;
   gap: 8px;
@@ -431,5 +601,180 @@ export const styles: string = `
   .wb-session-actions { padding: 0 12px 12px; }
   .wb-session-actions button { min-height: 36px; }
   .wb-hidden-path { display: none; }
+}
+`
+
+/**
+ * Styles for the compact sidebar entry.
+ *
+ * The entry is registered outside the panel, so it cannot rely on `.wb-root`
+ * tokens; it reads only the Host theme's inherited color and Canvas tokens.
+ * Geometry mirrors the native sidebar (rows at 2px inset, 36px high, 12px
+ * radius, 14px labels) so the shortcut entry does not look like a different
+ * product bolted onto the navigation column.
+ */
+export const sidebarStyles: string = `
+.wb-sidebar-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  color: inherit;
+}
+.wb-sidebar-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  height: 36px;
+  margin: 2px 0 4px;
+  padding: 0 4px;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+  font-size: 14px;
+  font-weight: 400;
+}
+.wb-sidebar-entry-title { letter-spacing: 0; }
+.wb-sidebar-entry-count { font-size: 12px; font-variant-numeric: tabular-nums; }
+.wb-sidebar-entry-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin: 0 2px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, #4d6bfe 35%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, #4d6bfe 12%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-sidebar-entry-primary:hover { background: color-mix(in srgb, #4d6bfe 18%, transparent); }
+.wb-sidebar-entry-actions { display: flex; flex-direction: column; gap: 2px; }
+.wb-sidebar-entry-actions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin: 0 2px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-sidebar-entry-actions button:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+.wb-sidebar-entry-restore { color: color-mix(in srgb, currentColor 65%, transparent); }
+.wb-sidebar-entry-hint {
+  margin: 4px 6px 0;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ---- Active and recent sessions --------------------------------------- */
+.wb-sidebar-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0 2px;
+}
+.wb-sidebar-sessions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 6px;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+  font-size: 12px;
+}
+.wb-sidebar-session {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 38px;
+  margin: 0 2px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-sidebar-session:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+.wb-sidebar-session-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 30%, transparent);
+}
+.wb-sidebar-session-dot.is-running { background: #3ecf8e; }
+.wb-sidebar-session-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.wb-sidebar-session-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wb-sidebar-session-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+.wb-sidebar-session-owner {
+  max-width: 100%;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-sidebar-session-state {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+.wb-sidebar-rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: 4px auto;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.wb-sidebar-rail:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.wb-sidebar-entry button:focus-visible,
+.wb-sidebar-rail:focus-visible {
+  outline: 2px solid #4d6bfe;
+  outline-offset: 2px;
 }
 `

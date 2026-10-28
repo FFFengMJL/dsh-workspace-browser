@@ -7,7 +7,9 @@
  * change plugin preferences (hidden workspaces) never call DSH services.
  */
 import React, { useEffect, useRef, useState } from 'react'
-import { matchesQuery, type WorkspaceRecord } from '../logic.js'
+import { createLatestRequest, matchesQuery, type WorkspaceRecord } from '../logic.js'
+import type { DirectoryListingInfo } from './runtime.js'
+import { FolderIcon } from './icons.js'
 
 interface DialogProps {
   titleId: string
@@ -196,6 +198,137 @@ export function DeleteWorkspaceDialog({
       <button className="wb-danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? '正在删除…' : '删除工作区'}</button>
     </>}
   >
+    {error && <p className="wb-error" role="alert">{error}</p>}
+  </Dialog>
+}
+
+export interface AddWorkspaceDialogProps {
+  busy: boolean
+  /** Refusal of the last submit; the typed path stays editable. */
+  error?: string | null
+  /** List one Host directory; rejects with a user-facing message. */
+  onListDirectory(path: string | undefined, signal: AbortSignal): Promise<DirectoryListingInfo>
+  onSubmit(path: string): void
+  onClose(): void
+}
+
+/**
+ * Register an existing Host directory.
+ *
+ * The path field is always available, so a Host without the in-app browse
+ * backend keeps a working flow. Browsing only lists directories and never
+ * reads file contents; every listing is Host-returned path data, never a path
+ * assembled in the browser. Requests are aborted and generation-checked so a
+ * slow listing cannot overwrite a newer directory or a dialog already closed.
+ */
+export function AddWorkspaceDialog({
+  busy,
+  error,
+  onListDirectory,
+  onSubmit,
+  onClose,
+}: AddWorkspaceDialogProps): React.JSX.Element {
+  const [path, setPath] = useState('')
+  const [listing, setListing] = useState<DirectoryListingInfo | null>(null)
+  const [listingBusy, setListingBusy] = useState(false)
+  const [listingError, setListingError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const requestGate = useRef(createLatestRequest())
+
+  // Closing aborts a pending browse; the generation check below also covers
+  // the case where an abort races a response that already resolved.
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  const load = async (target?: string) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const request = requestGate.current.next()
+    setListingBusy(true)
+    setListingError(null)
+    try {
+      const next = await onListDirectory(target, controller.signal)
+      if (!requestGate.current.isCurrent(request)) return
+      setListing(next)
+      setPath(next.path)
+    } catch (caught) {
+      if (!requestGate.current.isCurrent(request)) return
+      if (controller.signal.aborted) return
+      setListingError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      if (requestGate.current.isCurrent(request)) setListingBusy(false)
+    }
+  }
+
+  const trimmed = path.trim()
+  const canSubmit = trimmed !== '' && !busy
+  const submit = () => {
+    if (canSubmit) onSubmit(trimmed)
+  }
+
+  return <Dialog
+    titleId="wb-add-workspace-title"
+    title="添加工作区"
+    description="注册一个已经存在的主机目录。路径由运行 DSH 的主机校验，不是这台浏览器所在电脑的目录。"
+    onClose={busy ? () => {} : onClose}
+    wide
+    footer={<>
+      <button type="button" disabled={busy} onClick={onClose}>取消</button>
+      <button className="wb-primary" type="button" disabled={!canSubmit} onClick={submit}>{busy ? '正在添加…' : '添加工作区'}</button>
+    </>}
+  >
+    <label className="wb-field">主机目录路径
+      <input
+        value={path}
+        onChange={(event) => setPath(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter') submit() }}
+        placeholder="/srv/projects/demo"
+        spellCheck={false}
+        autoComplete="off"
+      />
+    </label>
+    <p className="wb-hint">DSH 会规范化路径、检查目录是否存在，并在重复添加时复用已有工作区。</p>
+
+    <div className="wb-browse-head">
+      <button type="button" className="wb-secondary-inline" disabled={listingBusy} onClick={() => void load(trimmed || undefined)}>
+        {listingBusy ? '正在读取…' : '浏览主机目录'}
+      </button>
+      {listing && !listingBusy && <span className="wb-browse-path" title={listing.path}>{listing.path}</span>}
+    </div>
+
+    {listingError && <p className="wb-error" role="alert">{listingError}</p>}
+
+    {listing && !listingBusy && <section className="wb-browse" aria-label="主机目录浏览">
+      {listing.crumbs.length > 0 && <div className="wb-browse-crumbs">
+        {listing.crumbs.map((crumb) => <button
+          key={crumb.path}
+          type="button"
+          className="wb-browse-crumb"
+          title={crumb.path}
+          onClick={() => void load(crumb.path)}
+        >{crumb.name}</button>)}
+      </div>}
+      {listing.entries.length === 0
+        ? <p className="wb-hint">此目录没有可进入的子目录。</p>
+        : <ul className="wb-browse-list">
+          {listing.entries.map((entry) => <li key={entry.path}>
+            <button type="button" className="wb-browse-entry" title={entry.path} onClick={() => void load(entry.path)}>
+              <FolderIcon /><span>{entry.name}</span>
+              {entry.hidden === true && <span className="wb-browse-hidden">隐藏目录</span>}
+            </button>
+          </li>)}
+        </ul>}
+      {listing.truncated && <p className="wb-hint">目录条目过多，Host 只返回了其中一部分。</p>}
+      <button
+        type="button"
+        className="wb-browse-pick"
+        disabled={busy}
+        onClick={() => onSubmit(listing.path)}
+      >
+        <FolderIcon size={14} />使用此目录（{listing.path}）
+      </button>
+    </section>}
+
     {error && <p className="wb-error" role="alert">{error}</p>}
   </Dialog>
 }

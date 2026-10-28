@@ -90,6 +90,12 @@ export interface BrowserPreferences {
   showBlankSessions: boolean
   /** Card density. Defaults to `'compact'`. */
   density: DisplayDensity
+  /**
+   * Whether the native workspace/session tree is replaced with a compact
+   * launcher. Defaults to `false`, so an existing install keeps DSH's own
+   * sidebar until the user explicitly opts in; turning it off restores it.
+   */
+  simplifySidebar: boolean
 }
 
 /**
@@ -108,6 +114,7 @@ export function defaultBrowserPreferences(): BrowserPreferences {
     showSubagents: false,
     showBlankSessions: false,
     density: 'compact',
+    simplifySidebar: false,
   }
 }
 
@@ -144,6 +151,9 @@ export function parseBrowserPreferences(raw: string | null): BrowserPreferences 
       showSubagents: record.showSubagents === true,
       showBlankSessions: record.showBlankSessions === true,
       density: record.density === 'comfortable' ? 'comfortable' : 'compact',
+      // Missing on payloads written before this field existed: keep the
+      // native tree, which is also the fresh-install default.
+      simplifySidebar: record.simplifySidebar === true,
     }
   } catch {
     return defaults
@@ -480,4 +490,165 @@ export function parentDirectory(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
   const index = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
   return index > 0 ? normalized.slice(0, index) : ''
+}
+
+/** Why a proposed workspace path cannot be submitted as typed. */
+export type WorkspacePathProblem = 'blank' | 'relative'
+
+/**
+ * Pre-check a workspace path against the one rule the Host states up front:
+ * the directory must be absolute on the Host machine.
+ *
+ * This is only a local guard for an obvious mistake, so the dialog can disable
+ * Save without a round trip. Everything else — existence, permissions, whether
+ * it is a directory — stays Host-authoritative and is never guessed here.
+ */
+export function workspacePathProblem(path: string): WorkspacePathProblem | null {
+  const trimmed = path.trim()
+  if (!trimmed) return 'blank'
+  const absolute = trimmed.startsWith('/')
+    || /^[A-Za-z]:[\\/]/.test(trimmed)
+    || /^\\\\[^\\]+\\[^\\]+/.test(trimmed)
+  return absolute ? null : 'relative'
+}
+
+/** One registry move: put `workspaceId` before `beforeWorkspaceId` (or last). */
+export interface WorkspaceMove {
+  readonly workspaceId: string
+  readonly beforeWorkspaceId?: string
+}
+
+/**
+ * Neighbour anchor for moving one workspace inside the registry order.
+ *
+ * Manual order is the registry order, so neighbours come from the unpinned
+ * list: pinning only reorders the display. `null` means the move is a no-op —
+ * the workspace is missing or already at the requested edge.
+ */
+export function workspaceMoveAnchor(
+  registryOrdered: readonly WorkspaceRecord[],
+  workspaceId: string,
+  delta: -1 | 1,
+): WorkspaceMove | null {
+  const index = registryOrdered.findIndex((workspace) => workspace.workspaceId === workspaceId)
+  if (index < 0) return null
+  const target = index + delta
+  if (target < 0 || target >= registryOrdered.length) return null
+  const beforeWorkspaceId = delta < 0
+    ? registryOrdered[target].workspaceId
+    : registryOrdered[target + 1]?.workspaceId
+  return { workspaceId, beforeWorkspaceId }
+}
+
+/**
+ * Monotonic token for "latest async request wins" flows.
+ *
+ * The directory browser can have a slow listing in flight when the user moves
+ * to another directory or closes the dialog; only the newest token may write
+ * to the view. Aborting the transport is the primary guard; this token also
+ * covers a response that had already resolved.
+ */
+export interface LatestRequest {
+  /** Invalidate every earlier token and return the new one. */
+  next(): number
+  /** Whether `token` is still the newest one. */
+  isCurrent(token: number): boolean
+}
+
+export function createLatestRequest(): LatestRequest {
+  let current = 0
+  return {
+    next: () => {
+      current += 1
+      return current
+    },
+    isCurrent: (token) => token === current,
+  }
+}
+
+/** Why a session appears in the compact sidebar's shortcut list. */
+export type SidebarSessionReason = 'current' | 'running' | 'finished' | 'recent'
+
+/** One session shortcut rendered by the compact sidebar. */
+export interface SidebarSessionRow {
+  readonly id: string
+  readonly title: string
+  readonly reason: SidebarSessionReason
+  /** Live Agent state; the current session can be running too. */
+  readonly running: boolean
+  /** Owning workspace title, when the catalog can attribute the session. */
+  readonly owner?: string
+  readonly updatedAt: number
+}
+
+/** Options for {@link sidebarSessionRows}. */
+export interface SidebarSessionOptions {
+  readonly ids: readonly string[]
+  readonly sessionsById: Readonly<Record<string, SessionRecord>>
+  /** Session → owning workspace index; only the title is read here. */
+  readonly owners?: ReadonlyMap<string, { readonly title: string }>
+  readonly archivedIds?: ReadonlySet<string>
+  /** Session the conversation view holds, when the catalog reports one. */
+  readonly currentSessionId?: string
+  /** Recently finished ids, newest first; deduplicated against the rest. */
+  readonly finishedIds?: readonly string[]
+  /** Maximum rows; defaults to 5. */
+  readonly limit?: number
+}
+
+/**
+ * Choose the sessions worth surfacing in the simplified sidebar.
+ *
+ * Order is deliberate: the open session first, then running work, then
+ * sessions that finished since this entry started watching, then recent
+ * history. Archived, delegated and unrelated blank rows stay out — the full
+ * panel remains the place for exhaustive lists. A blank session is still shown
+ * when it is the open one, because that is exactly the draft the user is in.
+ */
+export function sidebarSessionRows(options: SidebarSessionOptions): SidebarSessionRow[] {
+  const { ids, sessionsById } = options
+  const limit = Math.max(0, options.limit ?? 5)
+  const archived = options.archivedIds ?? new Set<string>()
+  const finished = options.finishedIds ?? []
+  const current = options.currentSessionId
+  const owners = options.owners
+  const rows: SidebarSessionRow[] = []
+  const seen = new Set<string>()
+
+  const eligible = (id: string): boolean => {
+    const session = sessionsById[id]
+    if (!session) return false
+    if (session.origin === 'subagent') return false
+    if (id !== current && archived.has(id)) return false
+    if (id !== current && session.blank === true) return false
+    return true
+  }
+
+  const push = (id: string, reason: SidebarSessionReason): void => {
+    if (rows.length >= limit || seen.has(id) || !eligible(id)) return
+    seen.add(id)
+    rows.push({
+      id,
+      title: sessionRowTitle(sessionsById[id]),
+      reason,
+      running: sessionsById[id]?.running === true,
+      owner: owners?.get(id)?.title,
+      updatedAt: sessionsById[id]?.updatedAt ?? 0,
+    })
+  }
+
+  const byRecent = (a: string, b: string): number =>
+    (sessionsById[b]?.updatedAt ?? 0) - (sessionsById[a]?.updatedAt ?? 0)
+
+  if (current) push(current, 'current')
+  const running = ids
+    .filter((id) => id !== current && sessionsById[id]?.running === true)
+    .sort(byRecent)
+  for (const id of running) push(id, 'running')
+  for (const id of finished) if (id !== current) push(id, 'finished')
+  for (const id of ids.slice().sort(byRecent)) {
+    if (rows.length >= limit) break
+    push(id, 'recent')
+  }
+  return rows
 }

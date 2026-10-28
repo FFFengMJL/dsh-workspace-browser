@@ -8,7 +8,15 @@
  * blank sessions or hide the one the user is typing in.
  */
 import { describe, expect, it } from 'vitest'
-import { readSessionSelection, workspaceFailureMessage, type HostSessionRow } from '../src/ui/runtime.js'
+import {
+  createBrowserServices,
+  directoryFailureMessage,
+  normalizeDirectoryListing,
+  readSessionSelection,
+  workspaceFailureMessage,
+  type HostSessionRow,
+  type PluginRuntime,
+} from '../src/ui/runtime.js'
 
 const row = (id: string, overrides: Partial<HostSessionRow> = {}): HostSessionRow => ({
   id,
@@ -101,6 +109,10 @@ describe('workspace command failures', () => {
       .toBe('工作区名称不能为空。')
     expect(workspaceFailureMessage(new Error('workspace delete failed: workspace/not-found: Workspace "w1" not found')))
       .toBe('该工作区已不存在，可能已在其他地方被删除。')
+    // Added workspaces go through the same create command; a bad path is a
+    // refusal the dialog must explain without inventing a cause.
+    expect(workspaceFailureMessage(new Error('workspace create failed: workspace/invalid-path: /nope does not exist')))
+      .toBe('该路径在运行 DSH 的主机上不是一个可用的目录，请检查路径是否存在、是否可读。')
   })
 
   it('passes through anything it cannot classify', () => {
@@ -110,5 +122,134 @@ describe('workspace command failures', () => {
     expect(workspaceFailureMessage(new Error('transport closed'))).toBe('transport closed')
     expect(workspaceFailureMessage(new Error('workspace rename failed: gateway/timeout: slow'))).toBe('workspace rename failed: gateway/timeout: slow')
     expect(workspaceFailureMessage('plain')).toBe('plain')
+  })
+})
+
+describe('directory listing adapter', () => {
+  it('keeps only well-formed directory rows', () => {
+    const listing = normalizeDirectoryListing({
+      path: '/srv',
+      home: '/home/me',
+      crumbs: [{ name: 'srv', path: '/srv' }, { name: 'broken' }, null],
+      entries: [{ name: 'app', path: '/srv/app', hidden: true }, { path: '/srv/orphan' }, 'nope'],
+      truncated: true,
+    })
+    expect(listing).toEqual({
+      path: '/srv',
+      home: '/home/me',
+      crumbs: [{ name: 'srv', path: '/srv' }],
+      entries: [{ name: 'app', path: '/srv/app', hidden: true }],
+      truncated: true,
+    })
+    // A truncated or malformed answer must not crash the dialog.
+    expect(normalizeDirectoryListing(null)).toEqual({ path: '', crumbs: [], entries: [], truncated: false })
+    expect(normalizeDirectoryListing({ entries: 'not-a-list' })).toEqual({ path: '', crumbs: [], entries: [], truncated: false })
+  })
+
+  it('explains an unavailable backend and passes unknown refusals through', () => {
+    const unavailable = Object.assign(new Error('directory picker failed'), {
+      rpcError: { code: 'directory-picker/unavailable', message: 'native backend' },
+    })
+    expect(directoryFailureMessage(unavailable)).toContain('未启用应用内目录浏览')
+    const notFound = Object.assign(new Error('directory picker failed'), {
+      rpcError: { code: 'directory-picker/not-found', message: 'gone' },
+    })
+    expect(directoryFailureMessage(notFound)).toBe('该目录不存在或无法访问。')
+    expect(directoryFailureMessage(new Error('transport closed'))).toBe('transport closed')
+    expect(directoryFailureMessage('plain')).toBe('plain')
+  })
+})
+
+describe('browser service adapter', () => {
+  const source = <T,>(snapshot: T): { getSnapshot(): T; subscribe(): () => void } => ({
+    getSnapshot: () => snapshot,
+    subscribe: () => () => {},
+  })
+
+  const runtime = (overrides: {
+    create?: PluginRuntime['workspaces']['create']
+    listDirectory?: PluginRuntime['uiWorkspace']['listDirectory']
+  } = {}): PluginRuntime => ({
+    slots: { inject: () => {}, register: () => () => {} },
+    workspaces: {
+      list: source({ items: [] }),
+      insertBefore: async () => {},
+      create: overrides.create ?? (async (input) => ({
+        workspaceId: 'w1',
+        title: 'demo',
+        path: input.path,
+        sessionIds: [],
+      })),
+      rename: async () => {},
+      delete: async () => {},
+    },
+    sessions: { list: source({ ids: [], byId: {} }) },
+    uiWorkspace: {
+      openSession: () => {},
+      startSession: () => {},
+      archiveSession: async () => {},
+      unarchiveSession: async () => {},
+      pinSession: async () => {},
+      unpinSession: async () => {},
+      forkSession: async () => 'child',
+      listDirectory: overrides.listDirectory ?? (async () => ({
+        path: '/home/me',
+        home: '/home/me',
+        crumbs: [],
+        entries: [],
+        truncated: false,
+      })),
+    },
+    remote: { session: { rename: async () => ({ ok: true }) } },
+    layout: { selectPanel: () => {} },
+  })
+
+  it('maps a created workspace to the row the panel renders', async () => {
+    const services = createBrowserServices(runtime())
+    await expect(services.workspaceController.create('/srv/app')).resolves.toEqual({
+      workspaceId: 'w1',
+      title: 'demo',
+      path: '/srv/app',
+      sessionIds: [],
+    })
+  })
+
+  it('turns a create refusal into a user-facing message', async () => {
+    const services = createBrowserServices(runtime({
+      create: async () => { throw new Error('workspace create failed: workspace/invalid-path: /nope') },
+    }))
+    await expect(services.workspaceController.create('/nope'))
+      .rejects.toThrow('该路径在运行 DSH 的主机上不是一个可用的目录，请检查路径是否存在、是否可读。')
+  })
+
+  it('normalizes a listing and preserves the abort signal', async () => {
+    const signals: Array<AbortSignal | undefined> = []
+    const services = createBrowserServices(runtime({
+      listDirectory: async (path, signal) => {
+        signals.push(signal)
+        return { path: path ?? '/home/me', home: '/home/me', crumbs: [], entries: [{ name: 'app', path: '/home/me/app' }], truncated: false }
+      },
+    }))
+    const controller = new AbortController()
+    await expect(services.uiWorkspace.listDirectory('/srv', controller.signal)).resolves.toEqual({
+      path: '/srv',
+      home: '/home/me',
+      crumbs: [],
+      entries: [{ name: 'app', path: '/home/me/app' }],
+      truncated: false,
+    })
+    expect(signals[0]).toBe(controller.signal)
+  })
+
+  it('wraps a directory refusal with the friendly message', async () => {
+    const services = createBrowserServices(runtime({
+      listDirectory: async () => {
+        throw Object.assign(new Error('directory picker failed'), {
+          rpcError: { code: 'directory-picker/unavailable', message: 'native backend' },
+        })
+      },
+    }))
+    await expect(services.uiWorkspace.listDirectory(undefined, new AbortController().signal))
+      .rejects.toThrow('当前 DSH 运行环境未启用应用内目录浏览，请直接输入主机上的绝对目录路径。')
   })
 })

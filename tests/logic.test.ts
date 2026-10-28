@@ -18,8 +18,12 @@ import {
   saveBrowserPreferences,
   sessionRowActionsLocked,
   sessionRowTitle,
+  sidebarSessionRows,
+  createLatestRequest,
   sortWorkspaces,
   splitHiddenWorkspaces,
+  workspaceMoveAnchor,
+  workspacePathProblem,
   workspaceTitleProblem,
   type SessionFilterOptions,
   type SessionRecord,
@@ -277,6 +281,7 @@ describe('workspace/session browser logic', () => {
       showSubagents: true,
       showBlankSessions: true,
       density: 'comfortable',
+      simplifySidebar: false,
     })
     expect(parseBrowserPreferences('{broken')).toEqual(defaultBrowserPreferences())
     expect(parseBrowserPreferences('{"schemaVersion":2,"workspaceOrder":"recent"}')).toEqual(defaultBrowserPreferences())
@@ -299,10 +304,16 @@ describe('workspace/session browser logic', () => {
     expect(legacy.showSubagents).toBe(false)
     expect(legacy.showBlankSessions).toBe(false)
     expect(legacy.density).toBe('compact')
+    // The simplified sidebar is opt-in: an older payload keeps the native tree.
+    expect(legacy.simplifySidebar).toBe(false)
 
     const malformed = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, showSubagents: 'yes', density: 'huge' }))
     expect(malformed.showSubagents).toBe(false)
     expect(malformed.density).toBe('compact')
+    expect(malformed.simplifySidebar).toBe(false)
+
+    const enabled = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, simplifySidebar: true }))
+    expect(enabled.simplifySidebar).toBe(true)
   })
 
   it('persists preferences under the documented key and tolerates unavailable storage', () => {
@@ -337,6 +348,120 @@ describe('workspace/session browser logic', () => {
     expect(parentDirectory('/work/demo/')).toBe('/work')
     expect(parentDirectory('C:\\repo\\demo')).toBe('C:\\repo')
     expect(parentDirectory('/')).toBe('')
+  })
+
+  it('pre-checks only the path rule the Host states up front', () => {
+    expect(workspacePathProblem('')).toBe('blank')
+    expect(workspacePathProblem('   ')).toBe('blank')
+    expect(workspacePathProblem('/home/user/project')).toBeNull()
+    expect(workspacePathProblem('  /srv/app  ')).toBeNull()
+    expect(workspacePathProblem('C:\\repo\\demo')).toBeNull()
+    expect(workspacePathProblem('D:/repo/demo')).toBeNull()
+    expect(workspacePathProblem('\\\\server\\share\\demo')).toBeNull()
+    // Relative input is rejected locally; existence and permissions stay Host-side.
+    expect(workspacePathProblem('project')).toBe('relative')
+    expect(workspacePathProblem('./project')).toBe('relative')
+    expect(workspacePathProblem('C:project')).toBe('relative')
+  })
+
+  it('anchors a manual move on registry neighbours and stops at the edges', () => {
+    const ordered = [
+      { workspaceId: 'w1', title: 'Alpha', path: '/a', sessionIds: [] },
+      { workspaceId: 'w2', title: 'Beta', path: '/b', sessionIds: [] },
+      { workspaceId: 'w3', title: 'Gamma', path: '/c', sessionIds: [] },
+    ]
+    // Moving up means "insert before the previous entry".
+    expect(workspaceMoveAnchor(ordered, 'w2', -1)).toEqual({ workspaceId: 'w2', beforeWorkspaceId: 'w1' })
+    // Moving down means "insert before the entry after the next one"; at the
+    // last position the anchor is omitted, which appends.
+    expect(workspaceMoveAnchor(ordered, 'w1', 1)).toEqual({ workspaceId: 'w1', beforeWorkspaceId: 'w3' })
+    expect(workspaceMoveAnchor(ordered, 'w2', 1)).toEqual({ workspaceId: 'w2', beforeWorkspaceId: undefined })
+    expect(workspaceMoveAnchor(ordered, 'w1', -1)).toBeNull()
+    expect(workspaceMoveAnchor(ordered, 'w3', 1)).toBeNull()
+    expect(workspaceMoveAnchor(ordered, 'missing', 1)).toBeNull()
+    expect(workspaceMoveAnchor([], 'w1', 1)).toBeNull()
+  })
+
+  it('keeps only the newest async request eligible to write', () => {
+    const gate = createLatestRequest()
+    expect(gate.isCurrent(0)).toBe(true)
+    const first = gate.next()
+    expect(gate.isCurrent(first)).toBe(true)
+    const second = gate.next()
+    // The slow first listing must not overwrite the directory the user moved to.
+    expect(gate.isCurrent(first)).toBe(false)
+    expect(gate.isCurrent(second)).toBe(true)
+  })
+
+  it('picks the open, running, just-finished, then recent sessions', () => {
+    const rows = {
+      s1: session('s1', { running: true, updatedAt: 100 }),
+      s2: session('s2', { running: true, updatedAt: 300 }),
+      s3: session('s3', { updatedAt: 500 }),
+      s4: session('s4', { updatedAt: 400 }),
+      s5: session('s5', { updatedAt: 600 }),
+      s6: session('s6', { origin: 'subagent', running: true, updatedAt: 700 }),
+      s7: session('s7', { blank: true, updatedAt: 800 }),
+    }
+    const owners = new Map([
+      ['s1', { title: 'Alpha' }],
+      ['s2', { title: 'Beta' }],
+      ['s3', { title: 'Gamma' }],
+      ['s4', { title: 'Delta' }],
+    ])
+    const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7']
+    const picked = sidebarSessionRows({
+      ids,
+      sessionsById: rows,
+      owners,
+      archivedIds: new Set(['s5']),
+      currentSessionId: 's3',
+      finishedIds: ['s4'],
+      limit: 5,
+    })
+    expect(picked.map((row) => [row.id, row.reason])).toEqual([
+      ['s3', 'current'],
+      ['s2', 'running'],
+      ['s1', 'running'],
+      ['s4', 'finished'],
+    ])
+    expect(picked[0].owner).toBe('Gamma')
+    // A provisional session stays out of the shortcuts — unless it is the one
+    // the conversation view is holding.
+    const blankCurrent = sidebarSessionRows({
+      ids,
+      sessionsById: rows,
+      currentSessionId: 's7',
+      limit: 1,
+    })
+    expect(blankCurrent).toEqual([{
+      id: 's7',
+      title: NEW_SESSION_LABEL,
+      reason: 'current',
+      running: false,
+      owner: undefined,
+      updatedAt: 800,
+    }])
+    // The limit trims from the back; the open session is never dropped.
+    expect(sidebarSessionRows({ ids, sessionsById: rows, currentSessionId: 's3', limit: 1 }).map((row) => row.id)).toEqual(['s3'])
+    expect(sidebarSessionRows({ ids, sessionsById: rows, limit: 0 })).toEqual([])
+  })
+
+  it('fills the shortcut list with recent history when nothing is active', () => {
+    const rows = {
+      a: session('a', { updatedAt: 10 }),
+      b: session('b', { updatedAt: 30 }),
+      c: session('c', { updatedAt: 20 }),
+    }
+    expect(sidebarSessionRows({
+      ids: ['a', 'b', 'c'],
+      sessionsById: rows,
+      owners: new Map([['b', { title: 'Beta' }]]),
+      limit: 2,
+    })).toEqual([
+      { id: 'b', title: 'b', reason: 'recent', running: false, owner: 'Beta', updatedAt: 30 },
+      { id: 'c', title: 'c', reason: 'recent', running: false, owner: undefined, updatedAt: 20 },
+    ])
   })
 
   it('handles a large in-memory session catalog without opening history', () => {
