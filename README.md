@@ -29,7 +29,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.5/dsh-workspace-browser-0.1.5.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.6/dsh-workspace-browser-0.1.6.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -49,8 +49,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.1.5.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.5.tgz"
+sha256sum -c dsh-workspace-browser-0.1.6.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.6.tgz"
 ```
 
 ### From a local checkout (development)
@@ -61,7 +61,7 @@ dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.5.tgz"
 
 ### Compatibility
 
-The only verified target is DSH `0.2.1-rc.4`; that is what `dsh.compatibility` in the manifest declares. Other versions have not been tested, and DSH's own compatibility check may require an explicit approval before loading an unverified version. The plugin does not patch DSH host code. The `./client` export is a DSH module-loader entry, not a general-purpose ESM import surface.
+The only verified target is DSH `0.2.1-rc.5`; that is what `dsh.compatibility` in the manifest declares. Other versions have not been tested, and DSH's own compatibility check may require an explicit approval before loading an unverified version. The plugin does not patch DSH host code. The `./client` export is a DSH module-loader entry, not a general-purpose ESM import surface.
 
 ## Scope and known limitations
 

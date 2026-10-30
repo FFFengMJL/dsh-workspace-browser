@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-browser",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "A workspace-first browser for DSH sessions",
   "packageManager": "pnpm@12.15.0",
   "type": "module",
@@ -54,7 +54,7 @@
     },
     "compatibility": {
       "dshReleases": {
-        "0.2.1-rc.4": "compatible"
+        "0.2.1-rc.5": "compatible"
       }
     }
   },
@@ -63,13 +63,13 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.4",
-    "@deepseek-ai/dsh-api-workspace-controller": "0.2.1-rc.4",
-    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.4",
-    "@deepseek-ai/dsh-client-ui-session": "0.2.1-rc.4",
-    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.4",
-    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.4",
-    "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-rc.4",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-rc.5",
     "@types/react": "^18.3.31",
     "react": "^18.3.1",
     "tsdown": "^0.23.0",
@@ -78,7 +78,7 @@
   },
   "engines": {
     "node": ">=22",
-    "dsh": ">=0.2.1-rc.4"
+    "dsh": ">=0.2.1-rc.5"
   },
   "license": "MIT",
   "keywords": [

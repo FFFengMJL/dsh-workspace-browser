@@ -161,7 +161,7 @@ jobs:
             echo "sha256sum -c ${sum}"
             echo '```'
             echo
-            echo "Requires DSH 0.2.1-rc.4, the only release this build was verified against. Not published to npm."
+            echo "Requires DSH 0.2.1-rc.5, the only release this build was verified against. Not published to npm."
           } > notes.md
 
           args=(--draft --title "${TAG}" --notes-file notes.md)
