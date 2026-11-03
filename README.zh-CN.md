@@ -31,7 +31,7 @@
 ### 从 Release 压缩包安装（推荐）
 
 1. 打开一个**已发布**的 Release，复制其 `.tgz` 附件地址，例如
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.1.6/dsh-workspace-browser-0.1.6.tgz`。
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.2.0/dsh-workspace-browser-0.2.0.tgz`。
    草稿状态的 Release 不提供可下载附件，发布后该地址才会生效。
 2. 安装到运行 Web 界面的 profile：
 
@@ -51,8 +51,8 @@ DSH 支持用 npm 包名、git 地址或压缩包地址安装插件。本项目�
 ```sh
 curl -fLO <压缩包地址>
 curl -fLO <压缩包地址>.sha256
-sha256sum -c dsh-workspace-browser-0.1.6.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.1.6.tgz"
+sha256sum -c dsh-workspace-browser-0.2.0.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.2.0.tgz"
 ```
 
 ### 从本地源码安装（开发用）
