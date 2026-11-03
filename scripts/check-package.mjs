@@ -155,6 +155,7 @@ async function verifyFileSet(files) {
     'LICENSE',
     'README.md',
     'README.zh-CN.md',
+    'THIRD_PARTY_NOTICES.md',
     'cordis.patch.yml',
     'lib/client.d.ts',
     'lib/client.js',

@@ -129,7 +129,12 @@ const runtime = {
 }
 
 plugin.apply(runtime)
-assert.deepEqual(registrations.map(({ name }) => name), ['sidebar.panellist', 'main', 'sidebar.workspaces'])
+assert.deepEqual(registrations.map(({ name }) => name), [
+  'sidebar.panellist',
+  'main',
+  'sidebar.workspaces',
+  'conversation.hero.workspace',
+])
 
 // Invoke the panel factories exactly as a slot declaration would.
 registrations[0].factory()
@@ -166,6 +171,27 @@ browserWindow.dispatchEvent(new CustomEvent('dsh-workspace-browser:preferences-c
   detail: { schemaVersion: 1, simplifySidebar: false },
 }))
 assert.equal(shadowEntries()[0].disposed, true)
+
+// The searchable picker is a second independent opt-in. It must never declare
+// the native directory-flow child slot: the native picker already owns it and
+// a second declaration throws. Its add flow uses public directory services.
+const pickerSlot = registrations.find(({ name }) => name === 'conversation.hero.workspace')
+const disposePicker = pickerSlot.factory()
+assert.equal(typeof disposePicker, 'function')
+const pickerEntries = () => entries.filter(({ options }) => options.name === 'conversation.hero.workspace')
+assert.equal(pickerEntries().length, 0, 'default preferences must not shadow the native picker')
+const pickerEnabled = { schemaVersion: 1, enhanceWorkspacePicker: true }
+storedPreferences.set(key, JSON.stringify(pickerEnabled))
+browserWindow.dispatchEvent(new CustomEvent('dsh-workspace-browser:preferences-changed', { detail: pickerEnabled }))
+assert.equal(pickerEntries().length, 1)
+assert.equal(pickerEntries()[0].options.priority, -100)
+assert.equal(pickerEntries()[0].options.children, undefined)
+assert.equal(typeof pickerEntries()[0].component, 'function')
+browserWindow.dispatchEvent(new CustomEvent('dsh-workspace-browser:preferences-changed', {
+  detail: { schemaVersion: 1, enhanceWorkspacePicker: false },
+}))
+assert.equal(pickerEntries()[0].disposed, true)
+disposePicker()
 
 // The panel receives a port rather than the raw context, so a renamed service
 // path fails here instead of at the first user click.

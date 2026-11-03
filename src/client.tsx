@@ -12,6 +12,7 @@ import { WorkspaceBrowser } from './ui/WorkspaceBrowser.js'
 import { PanelIcon } from './ui/icons.js'
 import { createBrowserServices, type PluginRuntime } from './ui/runtime.js'
 import { installSidebarEntry } from './ui/sidebar.js'
+import { installWorkspacePicker } from './ui/workspacePicker.js'
 
 /**
  * Cordis services this plugin reads. `inject` is validated at boot: removing an
@@ -45,4 +46,8 @@ export function apply(ctx: Context): void {
   // Optional and default-off: the shadow only exists while the preference is
   // on, and disposing it restores the native sidebar entry.
   installSidebarEntry(runtime)
+
+  // Optional and default-off: replaces only the native picker's presentation,
+  // not the trigger or the owner's workspace-selection semantics.
+  installWorkspacePicker(runtime)
 }

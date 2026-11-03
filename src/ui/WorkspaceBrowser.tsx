@@ -728,6 +728,13 @@ export function WorkspaceBrowser({
               onChange={(event) => updatePreferences({ simplifySidebar: event.target.checked })}
             />简化原生会话树
           </label>
+          <label className="wb-toggle" title="在原生新会话/空白会话的工作区选择器中加入关键词、全路径、全拼和首字母搜索；关闭后立即恢复原生菜单">
+            <input
+              type="checkbox"
+              checked={preferences.enhanceWorkspacePicker}
+              onChange={(event) => updatePreferences({ enhanceWorkspacePicker: event.target.checked })}
+            />增强原生工作区选择器
+          </label>
           <p className="wb-boundary">浏览偏好保存在本插件独立的浏览器存储，并可在同源标签页间同步；不与原生侧栏同步。这里只搜索会话元数据，不读取对话正文。</p>
         </section>
       </div>

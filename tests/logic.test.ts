@@ -287,6 +287,7 @@ describe('workspace/session browser logic', () => {
       showSubagents: true,
       showBlankSessions: true,
       simplifySidebar: false,
+      enhanceWorkspacePicker: false,
     })
     expect(parseBrowserPreferences('{broken')).toEqual(defaultBrowserPreferences())
     expect(parseBrowserPreferences('{"schemaVersion":2,"workspaceOrder":"recent"}')).toEqual(defaultBrowserPreferences())
@@ -310,14 +311,18 @@ describe('workspace/session browser logic', () => {
     expect(legacy.showBlankSessions).toBe(false)
     // The simplified sidebar is opt-in: an older payload keeps the native tree.
     expect(legacy.simplifySidebar).toBe(false)
+    // The searchable picker is opt-in too: an older payload keeps the native menu.
+    expect(legacy.enhanceWorkspacePicker).toBe(false)
 
     const malformed = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, showSubagents: 'yes', density: 'comfortable' }))
     expect(malformed.showSubagents).toBe(false)
     expect(malformed).not.toHaveProperty('density')
     expect(malformed.simplifySidebar).toBe(false)
+    expect(malformed.enhanceWorkspacePicker).toBe(false)
 
-    const enabled = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, simplifySidebar: true }))
+    const enabled = parseBrowserPreferences(JSON.stringify({ schemaVersion: 1, simplifySidebar: true, enhanceWorkspacePicker: true }))
     expect(enabled.simplifySidebar).toBe(true)
+    expect(enabled.enhanceWorkspacePicker).toBe(true)
   })
 
   it('persists preferences under the documented key and tolerates unavailable storage', () => {

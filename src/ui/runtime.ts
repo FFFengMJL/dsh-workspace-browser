@@ -36,6 +36,12 @@ export interface WorkspaceCatalogSnapshot {
   /** Registry-global pin set, most recently pinned first. */
   readonly pinnedSessionIds?: readonly string[]
   readonly state?: 'idle' | 'loading' | 'error'
+  /**
+   * Monotone list-arrival lifecycle. `ready` proves the catalog is complete,
+   * which is what the picker needs before treating an empty list as "no
+   * workspaces" and offering the add flow.
+   */
+  readonly phase?: 'pending' | 'ready'
 }
 
 /**

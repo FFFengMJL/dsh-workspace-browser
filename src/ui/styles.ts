@@ -845,3 +845,173 @@ export const sidebarStyles: string = `
   outline-offset: 2px;
 }
 `
+
+/**
+ * Searchable workspace picker.
+ *
+ * Rendered into the conversation hero rather than the panel, so it defines its
+ * own small token set and uses DSH's public theme aliases where they exist.
+ * `Canvas`/`CanvasText` are the fallback that follows the browser's color
+ * scheme when a host alias is absent.
+ */
+export const workspacePickerStyles: string = `
+.wb-picker {
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 360px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--dsw-radius-lg, 16px);
+  background: var(--dsw-menu-surface-fill, var(--dsw-alias-bg-overlay, Canvas));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, none);
+  color: var(--dsw-alias-label-primary, CanvasText);
+  box-shadow: var(--dsw-elevation-prominent, 0 14px 44px rgba(0, 0, 0, .24));
+  font: inherit;
+  font-size: 13px;
+  isolation: isolate;
+  overflow: hidden;
+}
+.wb-picker * { box-sizing: border-box; }
+.wb-picker-search { padding: 2px 2px 6px; }
+.wb-picker-search input {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, color-mix(in srgb, currentColor 16%, transparent));
+  border-radius: var(--dsw-radius-md, 12px);
+  background: var(--dsw-alias-bg-layer-2, color-mix(in srgb, currentColor 5%, transparent));
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  outline: none;
+}
+.wb-picker-search input::placeholder { color: var(--dsw-alias-label-tertiary, color-mix(in srgb, currentColor 48%, transparent)); }
+.wb-picker-search input:focus-visible {
+  border-color: var(--dsw-alias-state-business-primary, #4d6bfe);
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, #4d6bfe);
+  outline-offset: 1px;
+}
+.wb-picker-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.wb-picker-option {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-md, 12px);
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+.wb-picker-option[data-active="true"] {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+}
+.wb-picker-option-icon {
+  display: inline-flex;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-menu-icon, currentColor);
+}
+.wb-picker-option-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-picker-option[data-has-path="true"] .wb-picker-option-title {
+  flex: 0 1 auto;
+  max-width: 58%;
+}
+.wb-picker-option-path {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary, color-mix(in srgb, currentColor 48%, transparent));
+  font-size: 11px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-picker-option-check {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-state-business-primary, #4d6bfe);
+  font-size: 12px;
+  font-weight: 700;
+}
+.wb-picker-status {
+  padding: 8px;
+  color: var(--dsw-alias-label-secondary, color-mix(in srgb, currentColor 58%, transparent));
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+.wb-picker-add {
+  flex: 0 0 auto;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--dsw-alias-border-l1, color-mix(in srgb, currentColor 12%, transparent));
+}
+.wb-picker-add button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md, 12px);
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-picker-add button:hover,
+.wb-picker-add button:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+  outline: none;
+}
+.wb-picker-add svg { color: var(--dsw-alias-menu-icon, currentColor); }
+
+/* The reused add dialog is written against the panel's token names. */
+.wb-picker-dialog-scope {
+  --wb-border: color-mix(in srgb, currentColor 13%, transparent);
+  --wb-muted: color-mix(in srgb, currentColor 60%, transparent);
+  --wb-surface: color-mix(in srgb, currentColor 4%, transparent);
+  --wb-accent: #4d6bfe;
+  --wb-danger: #b42318;
+}
+.wb-picker-dialog-scope .wb-modal-backdrop { z-index: 1200; }
+.wb-picker-dialog-scope button:focus-visible,
+.wb-picker-dialog-scope input:focus-visible,
+.wb-picker-dialog-scope select:focus-visible {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+}
+.wb-picker-dialog-scope button:disabled { opacity: .5; cursor: not-allowed; }
+`

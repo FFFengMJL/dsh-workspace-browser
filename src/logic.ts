@@ -92,6 +92,12 @@ export interface BrowserPreferences {
    * sidebar until the user explicitly opts in; turning it off restores it.
    */
   simplifySidebar: boolean
+  /**
+   * Whether the native new-session workspace picker is replaced with a
+   * searchable one. Defaults to `false`, so an existing install keeps the
+   * native menu until the user explicitly opts in; turning it off restores it.
+   */
+  enhanceWorkspacePicker: boolean
 }
 
 /**
@@ -110,6 +116,7 @@ export function defaultBrowserPreferences(): BrowserPreferences {
     showSubagents: false,
     showBlankSessions: false,
     simplifySidebar: false,
+    enhanceWorkspacePicker: false,
   }
 }
 
@@ -148,6 +155,9 @@ export function parseBrowserPreferences(raw: string | null): BrowserPreferences 
       // Missing on payloads written before this field existed: keep the
       // native tree, which is also the fresh-install default.
       simplifySidebar: record.simplifySidebar === true,
+      // Missing on payloads written before this field existed: keep the
+      // native picker, which is also the fresh-install default.
+      enhanceWorkspacePicker: record.enhanceWorkspacePicker === true,
     }
   } catch {
     return defaults
