@@ -749,14 +749,54 @@ export const sidebarStyles: string = `
   font-size: 12px;
 }
 .wb-sidebar-group { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.wb-sidebar-group-title {
+.wb-sidebar-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
   margin: 8px 6px 2px;
+}
+.wb-sidebar-group-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   color: color-mix(in srgb, currentColor 55%, transparent);
   font-size: 11px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* One action control for the group "new session" button and the row
+   "remove shortcut" button: same hit area, radius, icon weight and reveal
+   rule, so they never read as two different control families. */
+.wb-sidebar-action {
+  display: inline-flex;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+.wb-sidebar-group:hover .wb-sidebar-group-add,
+.wb-sidebar-group:focus-within .wb-sidebar-group-add,
+.wb-sidebar-session:hover .wb-sidebar-session-remove,
+.wb-sidebar-session:focus-within .wb-sidebar-session-remove { opacity: 1; }
+.wb-sidebar-action:hover {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  color: inherit;
+}
+@media (hover: none) {
+  .wb-sidebar-group-add,
+  .wb-sidebar-session-remove { opacity: 1; }
 }
 .wb-sidebar-empty { margin: 4px 6px 8px; color: color-mix(in srgb, currentColor 55%, transparent); font-size: 12px; }
 .wb-sidebar-session {
@@ -772,7 +812,7 @@ export const sidebarStyles: string = `
 }
 .wb-sidebar-session:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
 .wb-sidebar-session.is-current { background: color-mix(in srgb, #4d6bfe 14%, transparent); }
-.wb-sidebar-session-open, .wb-sidebar-session-remove {
+.wb-sidebar-session-open {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -815,16 +855,10 @@ export const sidebarStyles: string = `
   font-size: 13px;
 }
 .wb-sidebar-session-remove {
-  flex: 0 0 30px;
-  justify-content: center;
-  margin: 3px;
-  border-radius: 7px;
-  color: color-mix(in srgb, currentColor 60%, transparent);
-  opacity: .45;
+  align-self: center;
+  /* Right edge matches the group action: 4px inside the 2px row inset. */
+  margin: 0 4px 0 2px;
 }
-.wb-sidebar-session:hover .wb-sidebar-session-remove,
-.wb-sidebar-session:focus-within .wb-sidebar-session-remove { opacity: 1; }
-.wb-sidebar-session-remove:hover { background: color-mix(in srgb, currentColor 9%, transparent); color: inherit; }
 .wb-sidebar-rail {
   display: flex;
   align-items: center;

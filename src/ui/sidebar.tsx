@@ -23,7 +23,7 @@ import {
   type BrowserPreferences,
 } from '../logic.js'
 import { PANEL_ID } from '../panel.js'
-import { PanelIcon, PlusIcon } from './icons.js'
+import { CloseIcon, PanelIcon, PlusIcon } from './icons.js'
 import { requestAddWorkspace } from './intents.js'
 import {
   browserPreferenceStorage,
@@ -59,6 +59,8 @@ export interface CompactSidebarEntryProps extends SidebarEntryOwnerProps {
   readonly sessions: Source<SessionCatalogSnapshot>
   /** Open a session in the native conversation view. */
   readonly openSession: (sessionId: string) => void
+  /** Open (or reuse) a blank session in one workspace. */
+  readonly startSession: (workspaceId: string) => void
   readonly openedSessions: OpenedSessionStore
 }
 
@@ -75,6 +77,7 @@ export function CompactSidebarEntry({
   workspaces,
   sessions,
   openSession,
+  startSession,
   openedSessions,
 }: CompactSidebarEntryProps): React.JSX.Element {
   const workspaceSnapshot = useSource(workspaces)
@@ -123,6 +126,20 @@ export function CompactSidebarEntry({
     }
   }
 
+  const startSessionIn = (workspaceId: string) => {
+    // The group is derived from the current catalog, but the catalog can
+    // change between render and click. Do not send a stale id to the Host.
+    if (!items.some((workspace) => workspace.workspaceId === workspaceId)) {
+      console.warn('dsh-workspace-browser: 工作区已不存在，无法新建会话。')
+      return
+    }
+    try {
+      startSession(workspaceId)
+    } catch (error) {
+      console.warn('dsh-workspace-browser: 无法在工作区中新建会话。', error)
+    }
+  }
+
   if (!wide) {
     return <>
       <style>{sidebarStyles}</style>
@@ -160,44 +177,61 @@ export function CompactSidebarEntry({
         <span>{openedIds.length} 项</span>
       </div>
       {groups.length === 0 && <p className="wb-sidebar-empty">进入会话后会显示在这里</p>}
-      {groups.map((group) => <section className="wb-sidebar-group" key={group.workspaceId === undefined ? 'unowned' : `workspace:${group.workspaceId}`}>
-        <h3 className="wb-sidebar-group-title" title={group.path}>{group.title}</h3>
-        {group.ids.map((id) => {
-          const session = sessionsById[id]
-          if (!session) return null
-          if (session.origin === 'subagent') return null
-          const isArchived = archived.has(id)
-          const isCurrent = isCurrentSidebarSession(id, currentSessionId, globalPanelActive)
-          const status = statusSnapshot.get(id as Parameters<typeof statusSnapshot.get>[0])
-          const childIds = sessionSnapshot.projectionsBySession?.[id]?.values?.subagentCatalog
-          const runningChild = childIds?.some((child) => {
-            const childStatus = statusSnapshot.get(child.id as Parameters<typeof statusSnapshot.get>[0])
-            return (childStatus?.running ?? sessionsById[child.id]?.running) === true
-          }) === true
-          const badge = sessionBadgeState(status, session.running, runningChild)
-          return <div className={`wb-sidebar-session${isCurrent ? ' is-current' : ''}`} key={id}>
-            <button
+      {groups.map((group) => {
+        const groupLabel = group.title.trim() === '' ? '未命名工作区' : group.title
+        const workspaceId = group.workspaceId
+        return <section className="wb-sidebar-group" key={workspaceId === undefined ? 'unowned' : `workspace:${workspaceId}`}>
+          <div className="wb-sidebar-group-head">
+            <h3 className="wb-sidebar-group-title" title={group.path ?? groupLabel}>{groupLabel}</h3>
+            {workspaceId !== undefined && <button
               type="button"
-              className="wb-sidebar-session-open"
-              title={isArchived ? '此会话已归档；请在工作区浏览器中筛选归档后恢复' : sessionRowTitle(session)}
-              aria-current={isCurrent ? 'page' : undefined}
-              aria-label={`${sessionRowTitle(session)}，${badge.label}${isArchived ? '，已归档' : ''}`}
-              disabled={isArchived}
-              onClick={() => openSessionById(id)}
+              className="wb-sidebar-action wb-sidebar-group-add"
+              title={`在「${groupLabel}」中新建会话`}
+              aria-label={`在「${groupLabel}」中新建会话`}
+              onClick={() => startSessionIn(workspaceId)}
             >
-              <span className={`wb-sidebar-session-status is-${badge.kind}`} aria-hidden="true" title={badge.label}>{badge.glyph}</span>
-              <span className="wb-sidebar-session-title">{sessionRowTitle(session)}</span>
-            </button>
-            <button
-              type="button"
-              className="wb-sidebar-session-remove"
-              aria-label={`从已打开会话中移除：${sessionRowTitle(session)}`}
-              title="仅移除此快捷入口，不会关闭或删除会话"
-              onClick={() => openedSessions.remove(id)}
-            >×</button>
+              <PlusIcon size={14} />
+            </button>}
           </div>
-        })}
-      </section>)}
+          {group.ids.map((id) => {
+            const session = sessionsById[id]
+            if (!session) return null
+            if (session.origin === 'subagent') return null
+            const isArchived = archived.has(id)
+            const isCurrent = isCurrentSidebarSession(id, currentSessionId, globalPanelActive)
+            const status = statusSnapshot.get(id as Parameters<typeof statusSnapshot.get>[0])
+            const childIds = sessionSnapshot.projectionsBySession?.[id]?.values?.subagentCatalog
+            const runningChild = childIds?.some((child) => {
+              const childStatus = statusSnapshot.get(child.id as Parameters<typeof statusSnapshot.get>[0])
+              return (childStatus?.running ?? sessionsById[child.id]?.running) === true
+            }) === true
+            const badge = sessionBadgeState(status, session.running, runningChild)
+            return <div className={`wb-sidebar-session${isCurrent ? ' is-current' : ''}`} key={id}>
+              <button
+                type="button"
+                className="wb-sidebar-session-open"
+                title={isArchived ? '此会话已归档；请在工作区浏览器中筛选归档后恢复' : sessionRowTitle(session)}
+                aria-current={isCurrent ? 'page' : undefined}
+                aria-label={`${sessionRowTitle(session)}，${badge.label}${isArchived ? '，已归档' : ''}`}
+                disabled={isArchived}
+                onClick={() => openSessionById(id)}
+              >
+                <span className={`wb-sidebar-session-status is-${badge.kind}`} aria-hidden="true" title={badge.label}>{badge.glyph}</span>
+                <span className="wb-sidebar-session-title">{sessionRowTitle(session)}</span>
+              </button>
+              <button
+                type="button"
+                className="wb-sidebar-action wb-sidebar-session-remove"
+                aria-label={`从已打开会话中移除：${sessionRowTitle(session)}`}
+                title="仅移除此快捷入口，不会关闭或删除会话"
+                onClick={() => openedSessions.remove(id)}
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
+          })}
+        </section>
+      })}
     </div>
 
     <div className="wb-sidebar-entry-actions">
@@ -310,6 +344,7 @@ export function installSidebarEntry(runtime: PluginRuntime): void {
         workspaces={runtime.workspaces.list}
         sessions={runtime.sessions.list}
         openSession={(sessionId) => runtime.uiWorkspace.openSession(sessionId)}
+        startSession={(workspaceId) => runtime.uiWorkspace.startSession(workspaceId)}
         openedSessions={opened.store}
       />,
     })

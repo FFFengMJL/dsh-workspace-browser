@@ -54,6 +54,11 @@ export function PlusIcon({ size = 16 }: IconProps): React.JSX.Element {
   return <Svg size={size}><path d="M12 5v14M5 12h14" /></Svg>
 }
 
+/** Dismiss glyph for compact row actions; matches the plus icon's weight. */
+export function CloseIcon({ size = 16 }: IconProps): React.JSX.Element {
+  return <Svg size={size}><path d="M6 6l12 12M18 6L6 18" /></Svg>
+}
+
 /** Horizontal ellipsis for the per-card overflow menu. */
 export function MoreIcon({ size = 16 }: IconProps): React.JSX.Element {
   return <Svg size={size}>
