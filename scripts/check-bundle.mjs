@@ -65,6 +65,11 @@ const browserWindow = {
 }
 
 const source = await readFile(join(packageRoot, 'lib/client.js'), 'utf8')
+// pinyin-pro must stay inlined: the published tarball has no node_modules and
+// the Host supplies only React. A build-config change that externalizes it
+// would otherwise fail only in a live profile.
+assert.ok(!/require\(['"]pinyin-pro['"]\)/.test(source), 'pinyin-pro must stay bundled')
+assert.ok(source.includes('lü'), 'the bundled pinyin dictionary is missing')
 let definition
 vm.runInNewContext(source, { window: browserWindow })
 

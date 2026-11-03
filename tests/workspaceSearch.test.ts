@@ -78,6 +78,17 @@ describe('workspace search index', () => {
   it('returns no rows for a query that matches nothing', () => {
     expect(ids('nonexistent')).toEqual([])
   })
+
+  it('indexes the ü vowel as v for keyboard pinyin', () => {
+    const umlaut = createWorkspaceSearchIndex([workspace('u1', '绿色项目', '/srv/lvse')])
+    const umlautIds = (query: string): string[] => (
+      filterWorkspaceSearch(umlaut, query).map((entry) => entry.workspace.workspaceId)
+    )
+    expect(umlaut[0].pinyin).toBe('lvsexiangmu')
+    expect(umlautIds('lvse')).toEqual(['u1'])
+    expect(umlautIds('lüse')).toEqual(['u1'])
+    expect(umlautIds('绿色')).toEqual(['u1'])
+  })
 })
 
 describe('workspace display name', () => {

@@ -38,7 +38,9 @@ export function normalizeSearchText(value: string): string {
 
 /** Keep only letters and digits so pinyin syllables can be queried without spaces. */
 function compactPinyin(value: string): string {
-  return normalizeSearchText(value).replace(/[^a-z0-9]+/g, '')
+  // pinyin-pro emits `ü` for syllables such as lü/nü; keyboard pinyin input
+  // normally writes `v`, so index both spellings under the same key.
+  return normalizeSearchText(value).replace(/ü/g, 'v').replace(/[^a-z0-9]+/g, '')
 }
 
 /**
@@ -99,12 +101,13 @@ export function filterWorkspaceSearch(
 ): readonly WorkspaceSearchEntry[] {
   const terms = searchTerms(query)
   if (terms.length === 0) return index
-  return index.filter((entry) => terms.every((term) => (
-    entry.title.includes(term)
-    || entry.path.includes(term)
-    || entry.pinyin.includes(term)
-    || entry.initials.includes(term)
-  )))
+  return index.filter((entry) => terms.every((term) => {
+    const pinyinTerm = term.replace(/ü/g, 'v')
+    return entry.title.includes(term)
+      || entry.path.includes(term)
+      || entry.pinyin.includes(pinyinTerm)
+      || entry.initials.includes(pinyinTerm)
+  }))
 }
 
 /** Clamp one keyboard move onto the result list; -1 means "no active row". */

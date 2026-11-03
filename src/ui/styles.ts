@@ -1045,10 +1045,13 @@ export const workspacePickerStyles: string = `
   text-align: left;
   cursor: pointer;
 }
-.wb-picker-add button:hover,
+.wb-picker-add button:hover {
+  background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
+}
 .wb-picker-add button:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, currentColor 8%, transparent));
-  outline: none;
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, #4d6bfe);
+  outline-offset: 1px;
 }
 .wb-picker-add svg { color: var(--dsw-alias-menu-icon, currentColor); }
 

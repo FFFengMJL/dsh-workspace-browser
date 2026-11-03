@@ -120,9 +120,14 @@ export function EnhancedWorkspacePicker({
   const composingRef = useRef(false)
   const addFlowRef = useRef(false)
   const mountedRef = useRef(true)
+  /** False when focus left naturally, so closing must not pull it back. */
+  const restoreFocusRef = useRef(true)
 
-  useEffect(() => () => {
-    mountedRef.current = false
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
   }, [])
 
   // The menu is anchored to the native trigger. Fixed positioning avoids
@@ -142,8 +147,10 @@ export function EnhancedWorkspacePicker({
         return
       }
       const margin = 8
-      const width = Math.min(360, Math.max(180, Math.min(320, viewportWidth - margin * 2)))
-      const left = Math.min(Math.max(margin, rect.left), viewportWidth - width - margin)
+      // Do not force a 180px floor: on a very narrow viewport that would make
+      // the popover wider than the space it is clamped into.
+      const width = Math.min(360, Math.max(0, Math.min(320, viewportWidth - margin * 2)))
+      const left = Math.min(Math.max(margin, rect.left), Math.max(margin, viewportWidth - width - margin))
       const below = viewportHeight - rect.bottom - margin
       const above = rect.top - margin
       const openUp = below < 220 && above > below
@@ -173,6 +180,8 @@ export function EnhancedWorkspacePicker({
     }
     setQuery('')
     setActiveIndex(0)
+    restoreFocusRef.current = true
+    composingRef.current = false
     const frame = requestAnimationFrame(() => {
       inputRef.current?.focus()
     })
@@ -186,6 +195,7 @@ export function EnhancedWorkspacePicker({
     if (!open) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     return () => {
+      if (!restoreFocusRef.current) return
       const target = previous?.isConnected ? previous : anchorRef?.current
       if (target?.isConnected) target.focus()
     }
@@ -218,6 +228,23 @@ export function EnhancedWorkspacePicker({
     return () => document.removeEventListener('pointerdown', handlePointerDown, true)
   }, [open, anchorRef, onClose])
 
+  // Tabbing forward from the search field must reach the "add workspace"
+  // button, which lives after the listbox. Close only once focus has actually
+  // left the popover, and do not pull it back to the trigger in that case.
+  useEffect(() => {
+    if (!open) return
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (popoverRef.current?.contains(target)) return
+      if (anchorRef?.current?.contains(target)) return
+      restoreFocusRef.current = false
+      onClose()
+    }
+    document.addEventListener('focusin', handleFocusIn, true)
+    return () => document.removeEventListener('focusin', handleFocusIn, true)
+  }, [open, anchorRef, onClose])
+
   // The add dialog owns Escape while it is open; the menu is already closed.
   useEffect(() => {
     if (!open || addOpen) return
@@ -233,9 +260,9 @@ export function EnhancedWorkspacePicker({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [open, addOpen, onClose])
 
-  // A truly empty catalog follows the native picker's direct-to-folder flow:
-  // only after `ready`, so a pending or failed snapshot never masquerades as
-  // "no workspaces".
+  // A truly empty catalog goes straight to the add dialog, matching the native
+  // picker's intent to avoid an empty menu. Wait for `ready` so a pending or
+  // failed snapshot never masquerades as "no workspaces".
   useEffect(() => {
     if (!open || addOpen || phase !== 'ready' || snapshot.state === 'error' || items.length !== 0) return
     onClose()
@@ -280,21 +307,29 @@ export function EnhancedWorkspacePicker({
     addFlowRef.current = true
     setAddBusy(true)
     setAddError(null)
-    void pickDirectory().then((path) => {
-      if (!mountedRef.current || path === null) return
-      return createWorkspace(path).then((workspace) => {
-        if (!mountedRef.current) return
-        setAddOpen(false)
-        onPick(workspace.workspaceId)
-      })
-    }).catch((error) => {
-      if (mountedRef.current) {
-        setAddError(`系统目录选择器打开失败：${describeError(error)}。可重试，或手动输入/浏览主机目录。`)
+    void (async () => {
+      try {
+        const path = await pickDirectory()
+        if (!mountedRef.current || path === null) return
+        try {
+          const workspace = await createWorkspace(path)
+          if (!mountedRef.current) return
+          setAddOpen(false)
+          onPick(workspace.workspaceId)
+        } catch (error) {
+          // The chooser succeeded; this is a registration/path failure, so do
+          // not tell the user the directory picker itself failed.
+          if (mountedRef.current) setAddError(describeError(error))
+        }
+      } catch (error) {
+        if (mountedRef.current) {
+          setAddError(`系统目录选择器打开失败：${describeError(error)}。可重试，或手动输入/浏览主机目录。`)
+        }
+      } finally {
+        addFlowRef.current = false
+        if (mountedRef.current) setAddBusy(false)
       }
-    }).finally(() => {
-      addFlowRef.current = false
-      if (mountedRef.current) setAddBusy(false)
-    })
+    })()
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -330,10 +365,6 @@ export function EnhancedWorkspacePicker({
       }
       case 'Escape':
         event.preventDefault()
-        onClose()
-        break
-      case 'Tab':
-        // Let focus leave naturally, but do not leave an orphaned popover.
         onClose()
         break
       default:
@@ -403,6 +434,7 @@ export function EnhancedWorkspacePicker({
             id={`${listboxId}-option-${index}`}
             className="wb-picker-option"
             role="option"
+            aria-label={`${entry.name}${workspace.path !== '' ? `，${workspace.path}` : ''}${isCurrent ? '，当前工作区' : ''}`}
             aria-selected={index === activeIndex}
             data-active={index === activeIndex ? 'true' : undefined}
             data-current={isCurrent ? 'true' : undefined}
@@ -415,7 +447,7 @@ export function EnhancedWorkspacePicker({
             <span className="wb-picker-option-icon"><FolderIcon size={14} /></span>
             <span className="wb-picker-option-title">{entry.name}</span>
             {workspace.path !== '' && <span className="wb-picker-option-path">{workspace.path}</span>}
-            {isCurrent && <span className="wb-picker-option-check" aria-label="当前工作区">✓</span>}
+            {isCurrent && <span className="wb-picker-option-check" aria-hidden="true">✓</span>}
           </li>
         })}
         {results.length === 0 && <li className="wb-picker-status" role="presentation">{status}</li>}
@@ -519,6 +551,11 @@ export function installWorkspacePicker(runtime: PluginRuntime): void {
       createWorkspace={async (path) => {
         try {
           const created = await runtime.workspaces.create({ path })
+          // Adding a workspace that was hidden earlier must make it visible in
+          // the panel too, matching the panel's own add flow.
+          updateBrowserPreferences((latest) => ({
+            hiddenWorkspaceIds: latest.hiddenWorkspaceIds.filter((id) => id !== created.workspaceId),
+          }))
           return {
             workspaceId: created.workspaceId,
             title: created.title,

@@ -44,6 +44,8 @@ interface RenderOptions {
   readonly selectedId?: string
   readonly onPick?: (workspaceId: string) => void
   readonly onClose?: () => void
+  readonly createWorkspace?: (path: string) => Promise<WorkspaceRecord>
+  readonly pickDirectory?: () => Promise<string | null>
 }
 
 function renderPicker(options: RenderOptions = {}) {
@@ -60,6 +62,8 @@ function renderPicker(options: RenderOptions = {}) {
   document.body.appendChild(anchor)
   const onPick = options.onPick ?? vi.fn()
   const onClose = options.onClose ?? vi.fn()
+  const createWorkspace = options.createWorkspace ?? (async (path: string) => workspace('created', '新工作区', path))
+  const pickDirectory = options.pickDirectory ?? (async () => null)
   render(<EnhancedWorkspacePicker
     open
     anchorRef={{ current: anchor }}
@@ -67,8 +71,8 @@ function renderPicker(options: RenderOptions = {}) {
     onPick={onPick}
     onClose={onClose}
     workspaces={source}
-    createWorkspace={async (path) => workspace('created', '新工作区', path)}
-    pickDirectory={async () => null}
+    createWorkspace={createWorkspace}
+    pickDirectory={pickDirectory}
     listDirectory={async (path) => ({
       path: path ?? '/home',
       crumbs: [],
@@ -117,6 +121,31 @@ describe('enhanced workspace picker', () => {
     const { onClose } = renderPicker()
     fireEvent.keyDown(screen.getByRole('combobox', { name: '搜索工作区' }), { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps Tab inside the popover and closes after focus leaves', () => {
+    const { onClose } = renderPicker()
+    const input = screen.getByRole('combobox', { name: '搜索工作区' })
+    fireEvent.keyDown(input, { key: 'Tab' })
+    expect(onClose).not.toHaveBeenCalled()
+
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    outside.focus()
+    expect(onClose).toHaveBeenCalledTimes(1)
+    outside.remove()
+  })
+
+  it('reports a registration failure without blaming the directory picker', async () => {
+    const createWorkspace = vi.fn().mockRejectedValue(new Error('目录不可用'))
+    renderPicker({
+      createWorkspace,
+      pickDirectory: async () => '/srv/bad',
+    })
+    fireEvent.click(screen.getByRole('button', { name: '添加工作区…' }))
+    fireEvent.click(await screen.findByRole('button', { name: '重新选择系统目录' }))
+    expect(await screen.findByText('目录不可用')).toBeTruthy()
+    expect(screen.queryByText(/系统目录选择器打开失败/)).toBeNull()
   })
 
   it('reports no matches without picking anything', () => {
