@@ -66,8 +66,8 @@ export interface CompactSidebarEntryProps extends SidebarEntryOwnerProps {
 
 /**
  * Simplified wide entry: a launcher, a persistent list of sessions the user
- * actually entered, and an explicit way back to DSH's native tree. The rail
- * variant stays a single icon.
+ * actually entered, and a path to the plugin panel where the compact mode can
+ * be turned off. The rail variant stays a single icon.
  */
 export function CompactSidebarEntry({
   wide,
@@ -128,7 +128,8 @@ export function CompactSidebarEntry({
       layout.selectPanel(PANEL_ID)
     } catch (error) {
       // The panel may be temporarily unregistered (for example during a
-      // plugin reload); the native tree stays one click away.
+      // plugin reload); the compact mode can still be turned off from the
+      // panel once it is available.
       console.warn('dsh-workspace-browser: 无法打开工作区浏览器。', error)
     }
   }

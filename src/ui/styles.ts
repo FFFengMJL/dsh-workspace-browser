@@ -793,6 +793,7 @@ export const sidebarStyles: string = `
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  max-height: min(50vh, 440px);
   margin: 10px 0 2px;
 }
 .wb-sidebar-sessions {
@@ -801,7 +802,7 @@ export const sidebarStyles: string = `
   flex-direction: column;
   gap: 2px;
   min-height: 0;
-  max-height: min(50vh, 440px);
+  max-height: none;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
