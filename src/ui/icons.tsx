@@ -108,3 +108,17 @@ export function FolderIcon({ size = 16 }: IconProps): React.JSX.Element {
 export function ChevronLeftIcon({ size = 16 }: IconProps): React.JSX.Element {
   return <Svg size={size}><path d="M15 6l-6 6 6 6" /></Svg>
 }
+
+export function ChevronDownIcon({ size = 16 }: IconProps): React.JSX.Element {
+  return <Svg size={size}><path d="M6 9l6 6 6-6" /></Svg>
+}
+
+/** Sliders glyph for the settings disclosure. */
+export function SettingsIcon({ size = 16 }: IconProps): React.JSX.Element {
+  return <Svg size={size}>
+    <path d="M4 6h16M4 12h16M4 18h16" />
+    <circle cx="9" cy="6" r="2" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" />
+    <circle cx="8" cy="18" r="2" fill="currentColor" stroke="none" />
+  </Svg>
+}

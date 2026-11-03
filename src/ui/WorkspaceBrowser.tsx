@@ -33,6 +33,7 @@ import {
 } from '../logic.js'
 import { SessionRow, WorkspaceCard, type SessionAction } from './cards.js'
 import { AddWorkspaceDialog, ArchiveConfirmDialog, DeleteWorkspaceDialog, HiddenWorkspacesDialog, RenameDialog, WorkspaceRenameDialog } from './dialogs.js'
+import { ChevronDownIcon, SettingsIcon } from './icons.js'
 import { consumeAddWorkspaceIntent, onAddWorkspaceRequest } from './intents.js'
 import { updateBrowserPreferences, useBrowserPreferences } from './preferences.js'
 import { readSessionSelection, useSource, workspaceFailureMessage, type BrowserServices, type HostSessionRow } from './runtime.js'
@@ -94,7 +95,6 @@ export function WorkspaceBrowser({
   const [renameValue, setRenameValue] = useState('')
   const [hiddenDialogOpen, setHiddenDialogOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   // Workspace registration mutations. Only one of the two dialogs is open at a
   // time, so they share one busy/error pair instead of four state slots.
   const [workspaceRenameTarget, setWorkspaceRenameTarget] = useState<string | null>(null)
@@ -662,16 +662,25 @@ export function WorkspaceBrowser({
             : <><option value="manual">手动顺序</option><option value="name">名称</option><option value="recent">最近活动</option></>}
         </select></label>
         <button
-          className="wb-toolbar-button"
+          className="wb-filter-toggle"
           type="button"
+          title="筛选与插件设置"
           aria-expanded={filtersOpen}
           aria-controls="wb-filter-panel"
           onClick={() => setFiltersOpen((open) => !open)}
-        >筛选与显示{filterCount > 0 ? ` · ${filterCount}` : ''}{!details ? ` · ${preferences.groupBy === 'workspace-tree' ? '工作区树' : preferences.groupBy === 'flat' ? '平铺' : '工作区'}` : ''}</button>
+        >
+          <SettingsIcon size={14} />
+          <span>筛选与设置</span>
+          {!details && preferences.groupBy !== 'workspace' && <span className="wb-filter-state">
+            {preferences.groupBy === 'workspace-tree' ? '工作区树' : '平铺'}
+          </span>}
+          {filterCount > 0 && <span className="wb-filter-count">{filterCount}</span>}
+          <span className="wb-filter-chevron" aria-hidden="true"><ChevronDownIcon size={14} /></span>
+        </button>
       </div>
       {filterCount > 0 && <p className="wb-active-filters">已启用：{activeFilterLabels.join('、')}</p>}
 
-      <section className="wb-filter-panel" id="wb-filter-panel" aria-label="筛选与显示" hidden={!filtersOpen}>
+      <section className="wb-filter-panel" id="wb-filter-panel" aria-label="筛选与设置" hidden={!filtersOpen}>
         <div className="wb-filter-grid">
           {!details && <label>范围 <select value={view.scope} onChange={(event) => commitView({ scope: event.target.value as SearchScope })}>
             <option value="all">全部</option>
@@ -710,17 +719,8 @@ export function WorkspaceBrowser({
           </label>
           {filterCount > 0 && <button className="wb-reset-filters" type="button" onClick={resetFilters}>重置筛选</button>}
         </div>
-      </section>
-
-      <div className="wb-settings-row">
-        <button
-          className="wb-settings-toggle"
-          type="button"
-          aria-expanded={settingsOpen}
-          aria-controls="wb-settings-panel"
-          onClick={() => setSettingsOpen((open) => !open)}
-        >设置与说明</button>
-        <section className="wb-settings-panel" id="wb-settings-panel" aria-label="设置与说明" hidden={!settingsOpen}>
+        <div className="wb-settings-section">
+          <h3>插件设置</h3>
           <label className="wb-toggle" title="用紧凑入口替换 DSH 原生会话树；关闭后立即恢复原生树">
             <input
               type="checkbox"
@@ -736,8 +736,8 @@ export function WorkspaceBrowser({
             />增强原生工作区选择器
           </label>
           <p className="wb-boundary">浏览偏好保存在本插件独立的浏览器存储，并可在同源标签页间同步；不与原生侧栏同步。这里只搜索会话元数据，不读取对话正文。</p>
-        </section>
-      </div>
+        </div>
+      </section>
     </header>
 
     {notice && <div className="wb-container wb-notice" role="status">
