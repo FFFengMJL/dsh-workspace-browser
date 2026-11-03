@@ -727,15 +727,15 @@ export const sidebarStyles: string = `
   cursor: pointer;
 }
 .wb-sidebar-entry-actions button:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
-.wb-sidebar-entry-restore { color: color-mix(in srgb, currentColor 65%, transparent); }
-.wb-sidebar-entry-hint {
-  margin: 4px 6px 0;
-  color: color-mix(in srgb, currentColor 55%, transparent);
-  font-size: 12px;
-  line-height: 1.5;
-}
 
 /* ---- Entered session shortcuts --------------------------------------- */
+.wb-sidebar-sessions-wrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 10px 0 2px;
+}
 .wb-sidebar-sessions {
   display: flex;
   flex: 1 1 auto;
@@ -746,8 +746,22 @@ export const sidebarStyles: string = `
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  margin: 10px 0 2px;
+  margin: 0;
 }
+/* A cut edge needs a cue beyond the slim scrollbar. The fade only appears
+   while the list can scroll and is not already at the bottom. */
+.wb-sidebar-sessions-wrap::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 0;
+  left: 0;
+  height: 32px;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, Canvas)) 30%, transparent);
+  opacity: 0;
+}
+.wb-sidebar-sessions-wrap.is-scrollable:not(.is-at-end)::after { opacity: 1; }
 /* The Host uses quiet overlay bars, which stay invisible until the user
    scrolls. Keep a slim persistent thumb here so a long tree is discoverable. */
 .wb-sidebar-sessions::-webkit-scrollbar { width: 5px; height: 5px; }

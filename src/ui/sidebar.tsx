@@ -13,7 +13,7 @@
  * asks it for its add dialog — otherwise that action would be unreachable
  * while the native tree is shadowed.
  */
-import React, { useMemo, useSyncExternalStore } from 'react'
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
   groupOpenedSessions,
   isCurrentSidebarSession,
@@ -93,6 +93,34 @@ export function CompactSidebarEntry({
   const archived = useMemo(() => new Set(workspaceSnapshot.archivedSessionIds ?? []), [workspaceSnapshot.archivedSessionIds])
   const selection = readSessionSelection(sessionIds, sessionsById)
   const currentSessionId = selection.known ? selection.currentSessionId : undefined
+  const sessionsRef = useRef<HTMLDivElement>(null)
+  const [sessionsScroll, setSessionsScroll] = useState({ scrollable: false, atEnd: true })
+
+  // Show a fade at the cut edge only while there is more content below. The
+  // ResizeObserver covers the entry shrinking; the groups dependency covers
+  // rows being added or removed without a size change.
+  useEffect(() => {
+    if (!wide) return
+    const element = sessionsRef.current
+    if (!element) return
+    const update = () => {
+      const scrollable = element.scrollHeight > element.clientHeight + 1
+      const atEnd = !scrollable || element.scrollTop + element.clientHeight >= element.scrollHeight - 1
+      setSessionsScroll((current) => (
+        current.scrollable === scrollable && current.atEnd === atEnd
+          ? current
+          : { scrollable, atEnd }
+      ))
+    }
+    update()
+    element.addEventListener('scroll', update, { passive: true })
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : undefined
+    observer?.observe(element)
+    return () => {
+      element.removeEventListener('scroll', update)
+      observer?.disconnect()
+    }
+  }, [groups, wide])
 
   const openBrowser = () => {
     if (!wide) expandSidebar?.()
@@ -108,10 +136,6 @@ export function CompactSidebarEntry({
   const addWorkspace = () => {
     openBrowser()
     requestAddWorkspace()
-  }
-
-  const restoreNative = () => {
-    updateBrowserPreferences({ simplifySidebar: false })
   }
 
   const openSessionById = (id: string) => {
@@ -171,8 +195,9 @@ export function CompactSidebarEntry({
       <span>打开工作区浏览器</span>
     </button>
 
-    <div className="wb-sidebar-sessions" aria-label="已打开会话">
-      <div className="wb-sidebar-sessions-head">
+    <div className={`wb-sidebar-sessions-wrap${sessionsScroll.scrollable ? ' is-scrollable' : ''}${sessionsScroll.atEnd ? ' is-at-end' : ''}`}>
+      <div ref={sessionsRef} className="wb-sidebar-sessions" aria-label="已打开会话">
+        <div className="wb-sidebar-sessions-head">
         <span>已打开会话</span>
         <span>{openedIds.length} 项</span>
       </div>
@@ -232,6 +257,7 @@ export function CompactSidebarEntry({
           })}
         </section>
       })}
+      </div>
     </div>
 
     <div className="wb-sidebar-entry-actions">
@@ -239,11 +265,7 @@ export function CompactSidebarEntry({
         <PlusIcon size={14} />
         <span>添加工作区</span>
       </button>
-      <button type="button" className="wb-sidebar-entry-restore" onClick={restoreNative}>
-        恢复原生会话树
-      </button>
     </div>
-    <p className="wb-sidebar-entry-hint">原生搜索与添加目录快捷键需恢复原生树后使用。此入口可随时关闭。</p>
   </section>
 }
 
