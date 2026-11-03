@@ -661,6 +661,12 @@ export const sidebarStyles: string = `
   gap: 2px;
   width: 100%;
   min-width: 0;
+  /* The Host sidebar area has a fixed height and hides overflow. Let the
+     entry shrink into it and make the session list the only scroll area,
+     otherwise a long tree pushes the actions and hint below the viewport. */
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
   padding: 0 var(--dsh-sidebar-inline-padding, 12px) 0 0;
   box-sizing: border-box;
   color: inherit;
@@ -732,12 +738,26 @@ export const sidebarStyles: string = `
 /* ---- Entered session shortcuts --------------------------------------- */
 .wb-sidebar-sessions {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 2px;
+  min-height: 0;
   max-height: min(50vh, 440px);
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   margin: 10px 0 2px;
+}
+/* The Host uses quiet overlay bars, which stay invisible until the user
+   scrolls. Keep a slim persistent thumb here so a long tree is discoverable. */
+.wb-sidebar-sessions::-webkit-scrollbar { width: 5px; height: 5px; }
+.wb-sidebar-sessions::-webkit-scrollbar-track { background: transparent; }
+.wb-sidebar-sessions::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 24%, transparent);
+}
+.wb-sidebar-sessions::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, currentColor 40%, transparent);
 }
 .wb-sidebar-sessions-head {
   display: flex;
