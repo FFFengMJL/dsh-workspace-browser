@@ -31,7 +31,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.2.0/dsh-workspace-browser-0.2.0.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.2.1/dsh-workspace-browser-0.2.1.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -51,8 +51,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.2.0.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.2.0.tgz"
+sha256sum -c dsh-workspace-browser-0.2.1.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.2.1.tgz"
 ```
 
 ### From a local checkout (development)
