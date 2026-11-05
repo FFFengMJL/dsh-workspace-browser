@@ -789,12 +789,16 @@ export const sidebarStyles: string = `
 
 /* ---- Entered session shortcuts --------------------------------------- */
 .wb-sidebar-sessions-wrap {
+  --wb-sidebar-scrollbar-width: 5px;
+  --wb-sidebar-scrollbar-offset: 2px;
   position: relative;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   max-height: min(50vh, 440px);
-  margin: 10px 0 2px;
+  /* Let the scrollbar sit in the entry's inline padding like the native tree,
+     while the shortcut list keeps its previous inset from the sidebar edge. */
+  margin: 10px min(0px, calc(var(--wb-sidebar-scrollbar-offset) - var(--dsh-sidebar-inline-padding, 12px))) 2px 0;
 }
 .wb-sidebar-sessions {
   display: flex;
@@ -807,13 +811,16 @@ export const sidebarStyles: string = `
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   margin: 0;
+  /* Keep the session rows' original gap to the sidebar edge; only the
+     scrollbar moves into the entry padding. */
+  padding-right: max(0px, calc(var(--dsh-sidebar-inline-padding, 12px) - var(--wb-sidebar-scrollbar-offset)));
 }
 /* A cut edge needs a cue beyond the slim scrollbar. The fade only appears
    while the list can scroll and is not already at the bottom. */
 .wb-sidebar-sessions-wrap::after {
   content: "";
   position: absolute;
-  right: 5px;
+  right: var(--wb-sidebar-scrollbar-width);
   bottom: 0;
   left: 0;
   height: 32px;
@@ -824,14 +831,17 @@ export const sidebarStyles: string = `
 .wb-sidebar-sessions-wrap.is-scrollable:not(.is-at-end)::after { opacity: 1; }
 /* The Host uses quiet overlay bars, which stay invisible until the user
    scrolls. Keep a slim persistent thumb here so a long tree is discoverable. */
-.wb-sidebar-sessions::-webkit-scrollbar { width: 5px; height: 5px; }
+.wb-sidebar-sessions::-webkit-scrollbar { width: var(--wb-sidebar-scrollbar-width); height: var(--wb-sidebar-scrollbar-width); }
 .wb-sidebar-sessions::-webkit-scrollbar-track { background: transparent; }
 .wb-sidebar-sessions::-webkit-scrollbar-thumb {
+  border: var(--dsh-scrollbar-thumb-border, 0px) solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 24%, transparent);
+  background-color: var(--dsw-alias-scrollbar-bg-l2, color-mix(in srgb, currentColor 24%, transparent));
+  background-clip: content-box;
 }
-.wb-sidebar-sessions::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, currentColor 40%, transparent);
+.wb-sidebar-sessions::-webkit-scrollbar-thumb:hover,
+.wb-sidebar-sessions:hover::-webkit-scrollbar-thumb {
+  background-color: var(--dsw-alias-scrollbar-hover-l2, color-mix(in srgb, currentColor 40%, transparent));
 }
 .wb-sidebar-sessions-head {
   display: flex;
