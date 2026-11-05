@@ -12,7 +12,7 @@
  * browser only passes them through as opaque keys, so the ports use `string`
  * and never inspect their contents.
  */
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from 'react'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionRecord, SessionSelection, WorkspaceRecord } from '../logic.js'
 import { PANEL_ID } from '../panel.js'
@@ -27,6 +27,43 @@ export interface Source<T> {
   getSnapshot(): T
   subscribe(listener: () => void): () => void
 }
+
+/**
+ * Session target captured by a row's menu gesture.
+ *
+ * DSH 0.2.2 supplies `useContextMenu` to every slot component's standard
+ * props. This plugin narrows the surface to the one target family it binds so
+ * it does not depend on the host's context-menu package at build time; the
+ * host still owns the popup, permission checks, and action implementations.
+ */
+export interface SessionMenuTarget {
+  readonly kind: 'session'
+  readonly value: {
+    readonly sessionId: string
+    readonly displayTitle: string
+  }
+}
+
+/** Keyboard and pointer handlers returned by the host's menu bindings. */
+export interface ContextMenuTriggerProps {
+  readonly tabIndex?: number
+  readonly onContextMenu?: (event: MouseEvent<HTMLElement>) => void
+  readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void
+}
+
+/** The `getTriggerProps` slice of the host's menu bindings this plugin uses. */
+export interface ContextMenuBindings {
+  getTriggerProps(
+    target: SessionMenuTarget | (() => SessionMenuTarget) | undefined,
+    handlers?: ContextMenuTriggerProps,
+  ): ContextMenuTriggerProps
+}
+
+/**
+ * Slot-standard menu hook; absent on hosts that predate the shared menu, so
+ * the compact tree must keep working without it.
+ */
+export type UseContextMenu = () => ContextMenuBindings
 
 /** Workspace catalog projection (`ctx.workspaces.list`). */
 export interface WorkspaceCatalogSnapshot {

@@ -33,9 +33,12 @@ import {
 import {
   readSessionSelection,
   useSource,
+  type ContextMenuTriggerProps,
   type PluginRuntime,
   type SessionCatalogSnapshot,
+  type SessionMenuTarget,
   type Source,
+  type UseContextMenu,
   type WorkspaceCatalogSnapshot,
 } from './runtime.js'
 import { sidebarStyles } from './styles.js'
@@ -50,6 +53,79 @@ export interface SidebarEntryOwnerProps {
   readonly wide: boolean
   /** Ask the shell to expand; the browser rides the wide flip. */
   readonly expandSidebar: () => void
+  /**
+   * The host's shared menu bindings, delivered as a slot standard prop since
+   * DSH 0.2.2. Optional so the compact tree still renders on older hosts.
+   */
+  readonly useContextMenu?: UseContextMenu
+}
+
+type SessionBadge = ReturnType<typeof sessionBadgeState>
+
+interface SessionOpenButtonProps {
+  readonly label: string
+  /** Visible row title. */
+  readonly name: string
+  /** Button tooltip; archived rows explain why they open the panel instead. */
+  readonly tooltip: string
+  readonly current: boolean
+  readonly archived: boolean
+  readonly badge: SessionBadge
+  /** Undefined for provisional rows, mirroring the native tree's blank-row rule. */
+  readonly menuTarget?: SessionMenuTarget
+  /** Absent on DSH releases before the shared context menu. */
+  readonly useContextMenu?: UseContextMenu
+  readonly onOpen: () => void
+}
+
+interface MenuSessionOpenButtonProps extends Omit<SessionOpenButtonProps, 'menuTarget' | 'useContextMenu'> {
+  readonly menuTarget: SessionMenuTarget
+  readonly useContextMenu: UseContextMenu
+}
+
+/**
+ * Row activation button.
+ *
+ * Hooks cannot be called conditionally, so the menu-bearing variant is a
+ * separate component: a host without the standard prop renders the plain
+ * button and keeps the browser context menu.
+ */
+function SessionOpenButton({ menuTarget, useContextMenu, ...view }: SessionOpenButtonProps): React.JSX.Element {
+  if (menuTarget === undefined || useContextMenu === undefined) {
+    return <SessionOpenButtonView {...view} />
+  }
+  return <MenuSessionOpenButton {...view} menuTarget={menuTarget} useContextMenu={useContextMenu} />
+}
+
+function MenuSessionOpenButton({ menuTarget, useContextMenu, ...view }: MenuSessionOpenButtonProps): React.JSX.Element {
+  const trigger = useContextMenu().getTriggerProps(menuTarget)
+  return <SessionOpenButtonView {...view} trigger={trigger} />
+}
+
+function SessionOpenButtonView({
+  label,
+  name,
+  tooltip,
+  current,
+  archived,
+  badge,
+  onOpen,
+  trigger,
+}: Omit<SessionOpenButtonProps, 'menuTarget' | 'useContextMenu'> & {
+  readonly trigger?: ContextMenuTriggerProps
+}): React.JSX.Element {
+  return <button
+    type="button"
+    {...trigger}
+    className={`wb-sidebar-session-open${archived ? ' is-archived' : ''}`}
+    title={tooltip}
+    aria-current={current ? 'page' : undefined}
+    aria-label={label}
+    onClick={onOpen}
+  >
+    <span className={`wb-sidebar-session-status is-${badge.kind}`} aria-hidden="true" title={badge.label}>{badge.glyph}</span>
+    <span className="wb-sidebar-session-title">{name}</span>
+  </button>
 }
 
 export interface CompactSidebarEntryProps extends SidebarEntryOwnerProps {
@@ -79,6 +155,7 @@ export function CompactSidebarEntry({
   openSession,
   startSession,
   openedSessions,
+  useContextMenu,
 }: CompactSidebarEntryProps): React.JSX.Element {
   const workspaceSnapshot = useSource(workspaces)
   const sessionSnapshot = useSource(sessions)
@@ -232,23 +309,26 @@ export function CompactSidebarEntry({
               return (childStatus?.running ?? sessionsById[child.id]?.running) === true
             }) === true
             const badge = sessionBadgeState(status, session.running, runningChild)
+            const rowTitle = sessionRowTitle(session)
             return <div className={`wb-sidebar-session${isCurrent ? ' is-current' : ''}`} key={id}>
-              <button
-                type="button"
-                className="wb-sidebar-session-open"
-                title={isArchived ? '此会话已归档；请在工作区浏览器中筛选归档后恢复' : sessionRowTitle(session)}
-                aria-current={isCurrent ? 'page' : undefined}
-                aria-label={`${sessionRowTitle(session)}，${badge.label}${isArchived ? '，已归档' : ''}`}
-                disabled={isArchived}
-                onClick={() => openSessionById(id)}
-              >
-                <span className={`wb-sidebar-session-status is-${badge.kind}`} aria-hidden="true" title={badge.label}>{badge.glyph}</span>
-                <span className="wb-sidebar-session-title">{sessionRowTitle(session)}</span>
-              </button>
+              <SessionOpenButton
+                label={`${rowTitle}，${badge.label}${isArchived ? '，已归档' : ''}`}
+                name={rowTitle}
+                tooltip={isArchived ? '此会话已归档；请在工作区浏览器中筛选归档后恢复' : rowTitle}
+                current={isCurrent}
+                archived={isArchived}
+                badge={badge}
+                menuTarget={session.blank === true ? undefined : {
+                  kind: 'session',
+                  value: { sessionId: id, displayTitle: session.title ?? '' },
+                }}
+                useContextMenu={useContextMenu}
+                onOpen={() => openSessionById(id)}
+              />
               <button
                 type="button"
                 className="wb-sidebar-action wb-sidebar-session-remove"
-                aria-label={`从已打开会话中移除：${sessionRowTitle(session)}`}
+                aria-label={`从已打开会话中移除：${rowTitle}`}
                 title="仅移除此快捷入口，不会关闭或删除会话"
                 onClick={() => openedSessions.remove(id)}
               >

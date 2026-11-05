@@ -922,7 +922,7 @@ export const sidebarStyles: string = `
   padding: 6px 7px;
   text-align: left;
 }
-.wb-sidebar-session-open:disabled { opacity: .55; cursor: not-allowed; }
+.wb-sidebar-session-open.is-archived { opacity: .55; }
 .wb-sidebar-session-status {
   display: inline-flex;
   flex: 0 0 16px;
