@@ -32,7 +32,7 @@ The plugin is not published to npm. Releases ship as prebuilt tarballs attached 
 ### From a release tarball (recommended)
 
 1. Open a **published** release and copy its `.tgz` asset URL, for example
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.4.1/dsh-workspace-browser-0.4.1.tgz`.
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.4.2/dsh-workspace-browser-0.4.2.tgz`.
    Draft releases expose no downloadable assets, so their URLs only resolve after publication.
 2. Install it into the profile that runs the Web UI:
 
@@ -52,8 +52,8 @@ Optional integrity check before installing:
 ```sh
 curl -fLO <tarball-url>
 curl -fLO <tarball-url>.sha256
-sha256sum -c dsh-workspace-browser-0.4.1.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.4.1.tgz"
+sha256sum -c dsh-workspace-browser-0.4.2.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.4.2.tgz"
 ```
 
 ### From a local checkout (development)
@@ -64,7 +64,7 @@ dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.4.1.tgz"
 
 ### Compatibility
 
-The manifest declares DSH `0.2.2-rc.2`, `0.2.2-rc.1`, and `0.2.1-rc.5` as compatible. Release 0.4.1 was built and verified against `0.2.2-rc.2`; on the older two the compact entry uses the fallbacks introduced in 0.4.0 (no section-scroller binding, stylesheet height cap), which the tests exercise with synthetic hosts. The shared session context menu needs `0.2.2-rc.1`; on `0.2.1-rc.5` the compact tree still renders and falls back to the browser's own context menu. From `0.2.2-rc.2` the shell serves the sidebar section from a scrollable viewport and offers a section-scroller hook: the compact tree binds its session list to it, so a wheel gesture moves the navigation away first and continues into the list, and scrolling up returns the list to its top before the navigation reappears. Hosts without that hook keep their own native scrolling. Other versions have not been tested, and DSH's own compatibility check may require an explicit approval before loading an unverified version. The plugin does not patch DSH host code. The `./client` export is a DSH module-loader entry, not a general-purpose ESM import surface.
+The manifest declares DSH `0.2.2-rc.2`, `0.2.2-rc.1`, and `0.2.1-rc.5` as compatible. Release 0.4.2 was built and verified against `0.2.2-rc.2`; on the older two the compact entry uses the fallbacks introduced in 0.4.0 (no section-scroller binding, stylesheet height cap), which the tests exercise with synthetic hosts. The shared session context menu needs `0.2.2-rc.1`; on `0.2.1-rc.5` the compact tree still renders and falls back to the browser's own context menu. From `0.2.2-rc.2` the shell serves the sidebar section from a scrollable viewport and offers a section-scroller hook: the compact tree binds its session list to it, so a wheel gesture moves the navigation away first and continues into the list, and scrolling up returns the list to its top before the navigation reappears. Hosts without that hook keep their own native scrolling. Other versions have not been tested, and DSH's own compatibility check may require an explicit approval before loading an unverified version. The plugin does not patch DSH host code. The `./client` export is a DSH module-loader entry, not a general-purpose ESM import surface.
 
 The client bundle includes `pinyin-pro` 3.29.5 (MIT) for full-pinyin and initials indexing; its copyright and license text are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
