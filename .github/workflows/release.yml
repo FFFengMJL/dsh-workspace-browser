@@ -161,7 +161,7 @@ jobs:
             echo "sha256sum -c ${sum}"
             echo '```'
             echo
-            echo "Verified against DSH 0.2.2-rc.2, 0.2.2-rc.1 and 0.2.1-rc.5. The shared session menu requires 0.2.2-rc.1. Not published to npm."
+            echo "Built and verified against DSH 0.2.2-rc.2; the manifest also declares 0.2.2-rc.1 and 0.2.1-rc.5. The shared session menu requires 0.2.2-rc.1. Not published to npm."
           } > notes.md
 
           args=(--draft --title "${TAG}" --notes-file notes.md)
