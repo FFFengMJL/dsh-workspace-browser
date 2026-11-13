@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { pnpmInvocation } from './pnpm.mjs'
 
 const execFile = promisify(execFileCallback)
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -82,7 +83,11 @@ await mkdir(outDir, { recursive: true })
 // `prepack` prints its own lifecycle output, so the tarball is located on disk
 // rather than parsed from stdout; a differently named artifact then fails the
 // assertion below instead of being silently published.
-await run('pnpm', ['pack', '--pack-destination', outDir], {
+// pnpm supplies its actual JS or native entry to lifecycle scripts.
+// Invoke it directly without a shell or Windows .cmd shim.
+const pnpm = pnpmInvocation(process.env.npm_execpath)
+await run(pnpm.command, [...pnpm.prefix, 'pack', '--pack-destination', outDir], {
+  shell: false,
   cwd: root,
   maxBuffer: 16 * 1024 * 1024,
 })
@@ -93,7 +98,7 @@ assert.ok(existsSync(tarball), 'pack did not write a tarball')
 
 const scratch = await mkdtemp(join(tmpdir(), 'dsh-workspace-browser-package-'))
 try {
-  await run('tar', ['-xzf', tarball, '-C', scratch])
+  await run('tar', ['-xzf', expectedTarball, '-C', scratch], { cwd: outDir })
   const packageRoot = join(scratch, 'package')
 
   await verifyManifestShape(packageRoot)

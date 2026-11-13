@@ -21,7 +21,11 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -49,7 +53,7 @@ jobs:
       # Convenience copy for inspecting a build; releases do not use it.
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: dsh-workspace-browser-package
+          name: dsh-workspace-browser-package-${{ matrix.os }}
           path: |
             .release/*.tgz
             .release/*.sha256
