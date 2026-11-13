@@ -9,7 +9,7 @@ paths and profile details in an untracked `AGENTS.local.md`.
 
 - Keep Cordis registration and the runtime-context narrowing in
   [src/client.tsx](src/client.tsx). When adding a Host service, update its
-  `inject` declaration, the narrow ports in [runtime.ts](src/ui/runtime.ts),
+  `inject` declaration (`remote.session` is required in addition to `remote` for session RPC), the narrow ports in [runtime.ts](src/ui/runtime.ts),
   and the loader smoke test together. Resolve the panel services lazily at mount.
 - Keep [src/logic.ts](src/logic.ts) React-free and side-effect free. Treat Host
   IDs as opaque strings; consume catalog metadata, not conversation bodies or
