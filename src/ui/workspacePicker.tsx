@@ -282,6 +282,7 @@ export function EnhancedWorkspacePicker({
   const openAdd = () => {
     onClose()
     setAddError(null)
+    setAddBrowseRequest(null)
     setAddOpen(true)
   }
 

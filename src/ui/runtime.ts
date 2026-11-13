@@ -284,25 +284,22 @@ interface DesktopDirectoryPicker {
 }
 
 /**
- * Resolve DSH's native chooser once, mirroring the official native flow.
+ * Build the chooser call shared by the panel and the enhanced picker.
  *
- * A desktop shell may install `__DSH_DIRECTORY_PICKER__` to drive the chooser
- * itself; otherwise the Host's composed picker decides between the OS dialog
- * and an in-app browse backend. The panel and the enhanced workspace picker
- * share this adapter so they cannot disagree about which chooser exists, and
- * resolving here keeps the bridge lookup under the same lifetime as the
- * registration that consumes it.
+ * The official native flow reads the optional desktop bridge once when it
+ * installs. Here the read happens on every call, so both plugin surfaces keep
+ * agreeing when a shell installs or replaces the bridge after plugin load. A
+ * bridge without a callable `pick` (including a null/undefined global) falls
+ * back to the Host's composed picker.
  */
 export function createDirectoryPicker(ui: WorkspaceActions): () => Promise<string | null> {
-  const desktop = (globalThis as typeof globalThis & {
-    __DSH_DIRECTORY_PICKER__?: DesktopDirectoryPicker
-  }).__DSH_DIRECTORY_PICKER__
-  if (desktop === undefined || typeof desktop.pick !== 'function') {
-    return () => ui.pickDirectory()
-  }
   return async () => {
-    // Method syntax preserves the receiver, so a class-based bridge can read
-    // its own state instead of being invoked as a detached function.
+    const desktop = (globalThis as typeof globalThis & {
+      __DSH_DIRECTORY_PICKER__?: DesktopDirectoryPicker | null
+    }).__DSH_DIRECTORY_PICKER__
+    if (desktop == null || typeof desktop.pick !== 'function') return ui.pickDirectory()
+    // Method call preserves the receiver, so a class-based bridge can read its
+    // own state instead of being invoked as a detached function.
     const picked: unknown = await desktop.pick()
     if (picked === null) return null
     if (typeof picked === 'string' && picked.trim() !== '') return picked

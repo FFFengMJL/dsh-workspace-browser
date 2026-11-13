@@ -216,8 +216,9 @@ export interface AddWorkspaceDialogProps {
    * The owner bumps this token after the native chooser refuses: the Host may
    * serve only in-app browsing, so the dialog opens already showing Host
    * directories instead of waiting for one more click. `null`/`undefined`
-   * means ordinary manual entry and starts no request. Each token is handled
-   * once, including a second refusal requested while the dialog stays open.
+   * means ordinary manual entry and starts no request. Each token triggers one
+   * listing, so a second refusal while the dialog stays open refreshes it; a
+   * development StrictMode replay aborts and repeats the first request.
    */
   browseRequest?: number | null
   onSubmit(path: string): void

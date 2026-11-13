@@ -507,6 +507,49 @@ describe('browser service adapter', () => {
     }
   })
 
+  it('reads the bridge at call time so a late-installed or replaced bridge wins', async () => {
+    const hostPick = vi.fn(async () => '/srv/host')
+    const services = createBrowserServices(runtime({ pickDirectory: hostPick }))
+    const target = globalThis as { __DSH_DIRECTORY_PICKER__?: unknown }
+    try {
+      // The adapter was built before any bridge existed.
+      await expect(services.uiWorkspace.pickDirectory()).resolves.toBe('/srv/host')
+
+      const first = {
+        selected: '/srv/first',
+        pick(): Promise<string | null> { return Promise.resolve(this.selected) },
+      }
+      target.__DSH_DIRECTORY_PICKER__ = first
+      await expect(services.uiWorkspace.pickDirectory()).resolves.toBe('/srv/first')
+
+      // A replaced bridge must be observed too, with its own receiver.
+      const second = {
+        selected: '/srv/second',
+        pick(): Promise<string | null> { return Promise.resolve(this.selected) },
+      }
+      target.__DSH_DIRECTORY_PICKER__ = second
+      await expect(services.uiWorkspace.pickDirectory()).resolves.toBe('/srv/second')
+      expect(hostPick).toHaveBeenCalledOnce()
+    } finally {
+      delete target.__DSH_DIRECTORY_PICKER__
+    }
+  })
+
+  it('falls back to the Host when the optional global is null or has no pick', async () => {
+    const hostPick = vi.fn(async () => '/srv/host')
+    const services = createBrowserServices(runtime({ pickDirectory: hostPick }))
+    const target = globalThis as { __DSH_DIRECTORY_PICKER__?: unknown }
+    try {
+      for (const bridge of [null, {}, { pick: 'not-a-function' }]) {
+        target.__DSH_DIRECTORY_PICKER__ = bridge
+        await expect(services.uiWorkspace.pickDirectory()).resolves.toBe('/srv/host')
+      }
+      expect(hostPick).toHaveBeenCalledTimes(3)
+    } finally {
+      delete target.__DSH_DIRECTORY_PICKER__
+    }
+  })
+
   it('preserves bridge cancellation and rejects an unreadable bridge answer', async () => {
     const target = globalThis as { __DSH_DIRECTORY_PICKER__?: unknown }
     try {
