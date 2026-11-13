@@ -76,7 +76,7 @@ vm.runInNewContext(source, { window: browserWindow })
 assert.equal(definition?.id, 'dsh-workspace-browser', `${label} registers under an unexpected module id`)
 const plugin = definition.factory(createRequire(import.meta.url))
 assert.equal(typeof plugin.apply, 'function', `${label} does not export apply()`)
-assert.deepEqual([...plugin.inject], ['slots', 'sessions', 'workspaces', 'remote', 'uiWorkspace', 'uiSession', 'layout'])
+assert.deepEqual([...plugin.inject], ['slots', 'sessions', 'workspaces', 'remote', 'remote.session', 'uiWorkspace', 'uiSession', 'layout'])
 
 // The host entry is an ordinary ESM module; DSH imports it before any client
 // code runs. It must stay importable and side-effect free.

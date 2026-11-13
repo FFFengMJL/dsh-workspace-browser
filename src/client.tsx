@@ -20,7 +20,7 @@ import { installWorkspacePicker } from './ui/workspacePicker.js'
  * inject", so it must stay in sync with what `ui/runtime.ts` touches (and with
  * what the compact sidebar entry reads).
  */
-export const inject: string[] = ['slots', 'sessions', 'workspaces', 'remote', 'uiWorkspace', 'uiSession', 'layout']
+export const inject: string[] = ['slots', 'sessions', 'workspaces', 'remote', 'remote.session', 'uiWorkspace', 'uiSession', 'layout']
 
 export function apply(ctx: Context): void {
   // Cordis types this plugin's own services; the DSH client services arrive
