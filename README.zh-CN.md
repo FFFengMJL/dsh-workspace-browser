@@ -32,7 +32,7 @@
 ### 从 Release 压缩包安装（推荐）
 
 1. 打开一个**已发布**的 Release，复制其 `.tgz` 附件地址，例如
-   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.4.0/dsh-workspace-browser-0.4.0.tgz`。
+   `https://github.com/FFFengMJL/dsh-workspace-browser/releases/download/v0.4.1/dsh-workspace-browser-0.4.1.tgz`。
    草稿状态的 Release 不提供可下载附件，发布后该地址才会生效。
 2. 安装到运行 Web 界面的 profile：
 
@@ -52,8 +52,8 @@ DSH 支持用 npm 包名、git 地址或压缩包地址安装插件。本项目�
 ```sh
 curl -fLO <压缩包地址>
 curl -fLO <压缩包地址>.sha256
-sha256sum -c dsh-workspace-browser-0.4.0.tgz.sha256
-dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.4.0.tgz"
+sha256sum -c dsh-workspace-browser-0.4.1.tgz.sha256
+dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.4.1.tgz"
 ```
 
 ### 从本地源码安装（开发用）
@@ -64,7 +64,7 @@ dsh plugin --profile web add "$PWD/dsh-workspace-browser-0.4.0.tgz"
 
 ### 兼容性
 
-清单把 DSH `0.2.2-rc.2`、`0.2.2-rc.1` 与 `0.2.1-rc.5` 声明为兼容。0.4.0 针对 `0.2.2-rc.2` 构建并验证；在更旧的两个版本上，简化侧栏使用本次新增的回退路径（不绑定区域滚动、按样式表上限收高），由测试用合成宿主覆盖。共享会话右键菜单需要 `0.2.2-rc.1`；在 `0.2.1-rc.5` 上简化侧栏仍会渲染，只是回退为浏览器自带菜单。`0.2.2-rc.2` 起侧栏由宿主提供可滚动视口，简化侧栏会接收宿主下发的滚动能力并绑定到会话列表：滚轮先卷走上方导航，再继续滚动列表，向上则反向交接；旧宿主没有该能力时沿用原生滚动，行为不变。其他版本未经验证；DSH 自身的兼容性检查可能要求显式批准才会加载未验证版本。插件不修改宿主代码。`./client` 导出是 DSH 模块加载器入口，不是通用 ESM 导入接口。
+清单把 DSH `0.2.2-rc.2`、`0.2.2-rc.1` 与 `0.2.1-rc.5` 声明为兼容。0.4.1 针对 `0.2.2-rc.2` 构建并验证；在更旧的两个版本上，简化侧栏使用 0.4.0 引入的回退路径（不绑定区域滚动、按样式表上限收高），由测试用合成宿主覆盖。共享会话右键菜单需要 `0.2.2-rc.1`；在 `0.2.1-rc.5` 上简化侧栏仍会渲染，只是回退为浏览器自带菜单。`0.2.2-rc.2` 起侧栏由宿主提供可滚动视口，简化侧栏会接收宿主下发的滚动能力并绑定到会话列表：滚轮先卷走上方导航，再继续滚动列表，向上则反向交接；旧宿主没有该能力时沿用原生滚动，行为不变。其他版本未经验证；DSH 自身的兼容性检查可能要求显式批准才会加载未验证版本。插件不修改宿主代码。`./client` 导出是 DSH 模块加载器入口，不是通用 ESM 导入接口。
 
 客户端包内置 `pinyin-pro` 3.29.5（MIT）用于全拼与首字母索引；其版权与许可文本见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
