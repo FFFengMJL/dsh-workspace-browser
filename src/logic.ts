@@ -607,6 +607,19 @@ export function isCurrentSidebarSession(sessionId: string, currentSessionId: str
   return !panelActive && currentSessionId === sessionId
 }
 
+/**
+ * Height left for the compact section below the shell's navigation.
+ *
+ * The sidebar viewport is shared by the navigation and this section, so the
+ * section may only use what remains above the footer. `minimum` keeps a very
+ * tall navigation from collapsing the list to nothing; the shell's own
+ * scrolling then takes over instead of the list disappearing.
+ */
+export function sectionAvailableHeight(areaHeight: number, entryTop: number, minimum = 240): number {
+  if (!Number.isFinite(areaHeight) || !Number.isFinite(entryTop)) return minimum
+  return Math.max(minimum, Math.round(areaHeight - entryTop))
+}
+
 export type SessionBadgeKind = 'approval' | 'question' | 'running' | 'completed' | 'idle'
 
 /** Presentation follows the public unified Host status priority, not inferred transitions. */

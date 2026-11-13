@@ -26,6 +26,7 @@ import {
   parseOpenedSessionIds,
   removeOpenedSession,
   createLatestRequest,
+  sectionAvailableHeight,
   sortWorkspaces,
   splitHiddenWorkspaces,
   workspaceMoveAnchor,
@@ -453,5 +454,20 @@ describe('workspace/session browser logic', () => {
       : session(id, { updatedAt: index })]))
     expect(filter(ids, rows)).toHaveLength(2_500)
     expect(filter(ids, rows, new Set(), new Set(), { showSubagents: true })).toHaveLength(5_000)
+  })
+})
+
+describe('section available height', () => {
+  it('leaves the remainder below the navigation for the section', () => {
+    expect(sectionAvailableHeight(794, 220)).toBe(574)
+  })
+
+  it('keeps a usable minimum when the navigation fills the viewport', () => {
+    expect(sectionAvailableHeight(300, 280, 240)).toBe(240)
+  })
+
+  it('falls back to the minimum for an unmeasurable viewport', () => {
+    expect(sectionAvailableHeight(Number.NaN, 200)).toBe(240)
+    expect(sectionAvailableHeight(500, Number.POSITIVE_INFINITY)).toBe(240)
   })
 })

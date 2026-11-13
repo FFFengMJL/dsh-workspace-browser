@@ -18,6 +18,7 @@ import {
   groupOpenedSessions,
   isCurrentSidebarSession,
   loadBrowserPreferences,
+  sectionAvailableHeight,
   sessionBadgeState,
   sessionRowTitle,
   type BrowserPreferences,
@@ -47,6 +48,19 @@ import { createOpenedSessionController, type OpenedSessionStore } from './opened
 /** Lowest live priority wins; the native occupant registers at the default 0. */
 const SHADOW_PRIORITY = -100
 
+/**
+ * Host viewport capability for the workspace section (DSH 0.2.2-rc.2+).
+ *
+ * The shell owns a scrollable viewport above the section and hands the
+ * occupant a ref callback for its own vertical scroller. Binding it lets a
+ * wheel gesture over the session list move the navigation away first and
+ * continue into the list, exactly as the native browser behaves. Older hosts
+ * do not supply the hook, which only means the shell keeps native scrolling.
+ */
+export interface SectionScroller {
+  readonly bindScrollerRef: (element: HTMLElement | null) => void
+}
+
 /** Owner props the sidebar passes to whoever occupies `sidebar.workspaces`. */
 export interface SidebarEntryOwnerProps {
   /** False while the sidebar is collapsed to its 56px rail. */
@@ -58,9 +72,25 @@ export interface SidebarEntryOwnerProps {
    * DSH 0.2.2. Optional so the compact tree still renders on older hosts.
    */
   readonly useContextMenu?: UseContextMenu
+  /**
+   * Slot hook supplied by the shell's `sidebar.workspaces` inject face since
+   * DSH 0.2.2-rc.2. Optional for the same reason as `useContextMenu`.
+   */
+  readonly useSectionScroller?: () => SectionScroller
 }
 
 type SessionBadge = ReturnType<typeof sessionBadgeState>
+
+/** Shared no-op capability so the hook can be called unconditionally. */
+const EMPTY_SECTION_SCROLLER: SectionScroller = { bindScrollerRef: () => {} }
+
+/**
+ * Hook used when the host predates the section-scroller face.
+ *
+ * Returning one shared object keeps the binding effect's dependency stable, so
+ * an older host re-renders exactly as before instead of rebinding every time.
+ */
+const useNoSectionScroller = (): SectionScroller => EMPTY_SECTION_SCROLLER
 
 interface SessionOpenButtonProps {
   readonly label: string
@@ -156,6 +186,7 @@ export function CompactSidebarEntry({
   startSession,
   openedSessions,
   useContextMenu,
+  useSectionScroller = useNoSectionScroller,
 }: CompactSidebarEntryProps): React.JSX.Element {
   const workspaceSnapshot = useSource(workspaces)
   const sessionSnapshot = useSource(sessions)
@@ -171,7 +202,76 @@ export function CompactSidebarEntry({
   const selection = readSessionSelection(sessionIds, sessionsById)
   const currentSessionId = selection.known ? selection.currentSessionId : undefined
   const sessionsRef = useRef<HTMLDivElement>(null)
+  const entryRef = useRef<HTMLElement>(null)
   const [sessionsScroll, setSessionsScroll] = useState({ scrollable: false, atEnd: true })
+  const sectionScroller = useSectionScroller()
+
+  // Hand the shell the element that actually scrolls this section, so its
+  // wheel hand-off can move the navigation away and continue into the list.
+  // The rail renders no list; the cleanup releases the binding on collapse and
+  // unmount so the shell never forwards a gesture to a detached element.
+  useEffect(() => {
+    if (!wide) return
+    const element = sessionsRef.current
+    if (!element) return
+    sectionScroller.bindScrollerRef(element)
+    return () => sectionScroller.bindScrollerRef(null)
+  }, [sectionScroller, wide])
+
+  // The sidebar viewport is shared with the navigation above and the footer
+  // below, so the section may only claim the height that is actually left.
+  // Measuring it (and re-measuring when the viewport or the navigation
+  // changes) lets a long opened-session list fill that space instead of
+  // stopping at a fixed cap and leaving a gap above the account entry. A host
+  // whose DOM exposes no shared viewport keeps the stylesheet fallback.
+  useEffect(() => {
+    if (!wide) return
+    const entry = entryRef.current
+    if (!entry) return
+    // The section is rendered inside the shell's workspace cell; the shared
+    // viewport is the ancestor that also holds the navigation. The Host marks
+    // it in DSH 0.2.2-rc.2; the structural fallback keeps older wrappers
+    // working, and a wrong guess is rejected by the offset checks below.
+    const cell = entry.parentElement?.parentElement
+    const area = (entry.closest('[data-sidebar-scrollport]') as HTMLElement | null) ?? cell?.parentElement ?? null
+    if (!area) return
+    const measure = () => {
+      const areaHeight = area.clientHeight
+      // Unlaid-out or hidden trees report zero and must not be trusted.
+      if (areaHeight <= 0 || entry.offsetHeight <= 0) return
+      // Layout offsets ignore the shell's rail-in transform, the area's scroll
+      // position and any page zoom, so they stay comparable with
+      // `clientHeight`. A host whose wrappers do not share an offset parent
+      // keeps the stylesheet fallback instead of guessing from rects.
+      if (entry.offsetParent === null || entry.offsetParent !== area.offsetParent) return
+      const entryTop = entry.offsetTop - area.offsetTop
+      // The navigation always occupies some space above the section; a zero
+      // remainder means the ancestor guess landed on the section's own cell.
+      if (!Number.isFinite(entryTop) || entryTop <= 0 || entryTop >= areaHeight) return
+      entry.style.setProperty('--wb-sidebar-available', `${sectionAvailableHeight(areaHeight, entryTop)}px`)
+    }
+    measure()
+    // The first frame after mount still runs the shell's entry animation, and
+    // the navigation above the section can arrive after this effect, so watch
+    // both instead of trusting the first measurement.
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(measure) : undefined
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : undefined
+    if (observer) {
+      observer.observe(area)
+      const navigation = area.firstElementChild
+      if (navigation instanceof HTMLElement && !navigation.contains(entry)) observer.observe(navigation)
+    }
+    const mutations = typeof MutationObserver === 'function'
+      ? new MutationObserver(measure)
+      : undefined
+    mutations?.observe(area, { childList: true })
+    return () => {
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      mutations?.disconnect()
+      observer?.disconnect()
+      entry.style.removeProperty('--wb-sidebar-available')
+    }
+  }, [wide])
 
   // Show a fade at the cut edge only while there is more content below. The
   // ResizeObserver covers the entry shrinking; the groups dependency covers
@@ -260,12 +360,23 @@ export function CompactSidebarEntry({
   const count = items.length
   const loading = workspaceSnapshot.state === 'loading' || workspaceSnapshot.state === 'error'
 
-  return <section className="wb-sidebar-entry" aria-label="工作区浏览器入口">
+  return <section ref={entryRef} className="wb-sidebar-entry" aria-label="工作区浏览器入口">
     <style>{sidebarStyles}</style>
     <div className="wb-sidebar-entry-head">
       <span className="wb-sidebar-entry-title">工作区</span>
-      <span className="wb-sidebar-entry-count">
-        {loading ? '读取中…' : `${count} 个`}
+      <span className="wb-sidebar-entry-head-end">
+        <span className="wb-sidebar-entry-count">
+          {loading ? '读取中…' : `${count} 个`}
+        </span>
+        <button
+          type="button"
+          className="wb-sidebar-action wb-sidebar-entry-add"
+          title="添加工作区"
+          aria-label="添加工作区"
+          onClick={addWorkspace}
+        >
+          <PlusIcon size={14} />
+        </button>
       </span>
     </div>
     <button className={`wb-sidebar-entry-primary${panelInfo.activePanelId === PANEL_ID ? ' is-active' : ''}`} type="button" aria-current={panelInfo.activePanelId === PANEL_ID ? 'page' : undefined} onClick={openBrowser}>
@@ -339,13 +450,6 @@ export function CompactSidebarEntry({
         </section>
       })}
       </div>
-    </div>
-
-    <div className="wb-sidebar-entry-actions">
-      <button type="button" onClick={addWorkspace}>
-        <PlusIcon size={14} />
-        <span>添加工作区</span>
-      </button>
     </div>
   </section>
 }

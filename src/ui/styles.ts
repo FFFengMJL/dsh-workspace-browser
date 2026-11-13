@@ -720,15 +720,24 @@ export const sidebarStyles: string = `
   gap: 2px;
   width: 100%;
   min-width: 0;
-  /* The Host sidebar area has a fixed height and hides overflow. Let the
-     entry shrink into it and make the session list the only scroll area,
-     otherwise a long tree pushes the actions and hint below the viewport. */
-  max-height: 100%;
+  /* The entry may only use the height left below the navigation, so the
+     session list is the only scroll area and the actions stay above the
+     account entry. The measurement effect supplies the exact remainder; the
+     fallback covers a host whose DOM exposes no shared viewport. */
+  max-height: var(--wb-sidebar-available, 100%);
   min-height: 0;
-  overflow: hidden;
-  padding: 0 var(--dsh-sidebar-inline-padding, 12px) 0 0;
+  /* The list draws its scrollbar in the column's padding strip, so the entry
+     must not clip it; the list itself keeps its own overflow. */
+  overflow: visible;
+  padding: 0;
   box-sizing: border-box;
   color: inherit;
+}
+/* DSH 0.2.2-rc.2 makes the shell viewport a size container and serves the
+   section from it, so one shell viewport is the no-measurement bound there;
+   older hosts have no size container and keep the percentage fallback. */
+@container (min-height: 1px) {
+  .wb-sidebar-entry { max-height: var(--wb-sidebar-available, 100cqh); }
 }
 .wb-sidebar-entry * { box-sizing: border-box; }
 .wb-sidebar-entry-head {
@@ -738,12 +747,13 @@ export const sidebarStyles: string = `
   gap: 4px;
   height: 36px;
   margin: 2px 0 4px;
-  padding: 0 4px;
+  padding: 0 1px 0 4px;
   color: color-mix(in srgb, currentColor 60%, transparent);
   font-size: 14px;
   font-weight: 400;
 }
 .wb-sidebar-entry-title { letter-spacing: 0; }
+.wb-sidebar-entry-head-end { display: flex; align-items: center; gap: 4px; }
 .wb-sidebar-entry-count { font-size: 12px; font-variant-numeric: tabular-nums; }
 .wb-sidebar-entry-primary {
   display: flex;
@@ -768,37 +778,14 @@ export const sidebarStyles: string = `
   background: color-mix(in srgb, #4d6bfe 12%, transparent);
   font-weight: 600;
 }
-.wb-sidebar-entry-actions { display: flex; flex-direction: column; gap: 2px; }
-.wb-sidebar-entry-actions button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  margin: 0 2px;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-.wb-sidebar-entry-actions button:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
-
 /* ---- Entered session shortcuts --------------------------------------- */
 .wb-sidebar-sessions-wrap {
   --wb-sidebar-scrollbar-width: 5px;
-  --wb-sidebar-scrollbar-offset: 2px;
   position: relative;
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  max-height: min(50vh, 440px);
-  /* Let the scrollbar sit in the entry's inline padding like the native tree,
-     while the shortcut list keeps its previous inset from the sidebar edge. */
-  margin: 10px min(0px, calc(var(--wb-sidebar-scrollbar-offset) - var(--dsh-sidebar-inline-padding, 12px))) 2px 0;
+  margin: 10px 0 2px;
 }
 .wb-sidebar-sessions {
   display: flex;
@@ -810,10 +797,11 @@ export const sidebarStyles: string = `
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  margin: 0;
-  /* Keep the session rows' original gap to the sidebar edge; only the
-     scrollbar moves into the entry padding. */
-  padding-right: max(0px, calc(var(--dsh-sidebar-inline-padding, 12px) - var(--wb-sidebar-scrollbar-offset)));
+  /* Same column geometry as the shell's navigation and the native tree: the
+     scrollbar sits in the column's right padding strip and the rows return to
+     the column edges. */
+  margin: 0 calc(2px - var(--dsh-sidebar-inline-padding, 8px)) 0 0;
+  padding: 0 calc(var(--dsh-sidebar-inline-padding, 8px) - var(--dsh-scrollbar-width, 5px) - 2px) 24px 0;
 }
 /* A cut edge needs a cue beyond the slim scrollbar. The fade only appears
    while the list can scroll and is not already at the bottom. */
@@ -898,6 +886,10 @@ export const sidebarStyles: string = `
   background: color-mix(in srgb, currentColor 9%, transparent);
   color: inherit;
 }
+/* The add-workspace action lives in the section header so the session list can
+   use the whole column below it instead of stopping above a bottom action row.
+   It stays visible, unlike the row actions revealed on hover. */
+.wb-sidebar-entry .wb-sidebar-entry-add { opacity: 1; color: inherit; }
 @media (hover: none) {
   .wb-sidebar-group-add,
   .wb-sidebar-session-remove { opacity: 1; }
@@ -909,7 +901,7 @@ export const sidebarStyles: string = `
   gap: 2px;
   min-width: 0;
   min-height: 36px;
-  margin: 0 2px;
+  margin: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
