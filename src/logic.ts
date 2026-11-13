@@ -492,7 +492,15 @@ export function parentLabelFor(
 /** Derive a path parent without touching the filesystem. */
 export function parentDirectory(path: string): string {
   const normalized = path.replace(/[\\/]+$/, '')
+  // Namespace paths have the same roots as ordinary Windows paths, but
+  // their \\?\ / \\.\ prefix must not be mistaken for a UNC server/share.
+  const drive = /^(?:[\\/]{2}[?.][\\/])?[A-Za-z]:/.exec(normalized)
+  const unc = /^(?:[\\/]{2}\?[\\/]UNC[\\/]|[\\/]{2})[^\\/]+[\\/][^\\/]+/i.exec(normalized)
+  if (unc && normalized.length === unc[0].length) return ''
+  if (drive && normalized.length === drive[0].length) return ''
   const index = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
+  if (drive && index === drive[0].length) return normalized.slice(0, index + 1)
+  if (index === 0) return '/'
   return index > 0 ? normalized.slice(0, index) : ''
 }
 
