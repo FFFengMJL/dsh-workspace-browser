@@ -210,6 +210,16 @@ export interface AddWorkspaceDialogProps {
   onPickDirectory(): void
   /** List one Host directory; rejects with a user-facing message. */
   onListDirectory(path: string | undefined, signal: AbortSignal): Promise<DirectoryListingInfo>
+  /**
+   * Ask the dialog to list the Host's starting directory once.
+   *
+   * The owner bumps this token after the native chooser refuses: the Host may
+   * serve only in-app browsing, so the dialog opens already showing Host
+   * directories instead of waiting for one more click. `null`/`undefined`
+   * means ordinary manual entry and starts no request. Each token is handled
+   * once, including a second refusal requested while the dialog stays open.
+   */
+  browseRequest?: number | null
   onSubmit(path: string): void
   onClose(): void
 }
@@ -228,6 +238,7 @@ export function AddWorkspaceDialog({
   error,
   onPickDirectory,
   onListDirectory,
+  browseRequest,
   onSubmit,
   onClose,
 }: AddWorkspaceDialogProps): React.JSX.Element {
@@ -268,6 +279,24 @@ export function AddWorkspaceDialog({
   const submit = () => {
     if (canSubmit) onSubmit(trimmed)
   }
+
+  // Keep the latest loader without re-running the fallback effect on every
+  // parent render. The token, not the callback identity, decides when to load.
+  const loadRef = useRef(load)
+  loadRef.current = load
+  const handledBrowseRequest = useRef<number | null>(null)
+  useEffect(() => {
+    const request = browseRequest ?? null
+    if (request === null || handledBrowseRequest.current === request) return
+    handledBrowseRequest.current = request
+    void loadRef.current()
+    // Re-arm on teardown: StrictMode's development replay runs the cleanup
+    // between its two setups, so the request must start again after that replay;
+    // a real unmount simply never re-runs it.
+    return () => {
+      if (handledBrowseRequest.current === request) handledBrowseRequest.current = null
+    }
+  }, [browseRequest])
 
   return <Dialog
     titleId="wb-add-workspace-title"

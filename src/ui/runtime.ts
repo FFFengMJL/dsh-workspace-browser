@@ -237,13 +237,26 @@ export function directoryFailureMessage(error: unknown): string {
 }
 
 /**
+ * User-facing text for the fallback after a chooser refusal.
+ *
+ * The client flattens the structured pick refusal into one string before this
+ * plugin sees it, so the message cannot claim the backend is browse-only
+ * without guessing from text. It says what was tried instead: the add dialog
+ * opens ready to list the Host's directories, which is the path that works
+ * under a browse composition, and manual entry stays available either way.
+ */
+export function chooserFallbackMessage(reason: string): string {
+  return `系统目录选择器不可用：${reason}。已尝试改用应用内浏览运行 DSH 的主机目录；也可直接输入绝对路径。`
+}
+
+/**
  * Navigation and session actions owned by the workspace UI service.
  *
  * These are the plugin's only mutations of DSH state; they call public client
  * services and never rewrite session logs directly.
  */
 export interface WorkspaceActions {
-  /** Open the DSH host's native directory chooser; null means the operator cancelled. */
+  /** Open the desktop shell's or the DSH Host's directory chooser; null means cancelled. */
   pickDirectory(): Promise<string | null>
   /** Open a known session in the native conversation view. */
   openSession(sessionId: string): void
@@ -263,6 +276,41 @@ export interface WorkspaceActions {
    * surfaces while keeping the manual path field usable.
    */
   listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListingInfo>
+}
+
+/** The desktop shell's optional override of the Host directory chooser. */
+interface DesktopDirectoryPicker {
+  pick(): Promise<unknown>
+}
+
+/**
+ * Resolve DSH's native chooser once, mirroring the official native flow.
+ *
+ * A desktop shell may install `__DSH_DIRECTORY_PICKER__` to drive the chooser
+ * itself; otherwise the Host's composed picker decides between the OS dialog
+ * and an in-app browse backend. The panel and the enhanced workspace picker
+ * share this adapter so they cannot disagree about which chooser exists, and
+ * resolving here keeps the bridge lookup under the same lifetime as the
+ * registration that consumes it.
+ */
+export function createDirectoryPicker(ui: WorkspaceActions): () => Promise<string | null> {
+  const desktop = (globalThis as typeof globalThis & {
+    __DSH_DIRECTORY_PICKER__?: DesktopDirectoryPicker
+  }).__DSH_DIRECTORY_PICKER__
+  if (desktop === undefined || typeof desktop.pick !== 'function') {
+    return () => ui.pickDirectory()
+  }
+  return async () => {
+    // Method syntax preserves the receiver, so a class-based bridge can read
+    // its own state instead of being invoked as a detached function.
+    const picked: unknown = await desktop.pick()
+    if (picked === null) return null
+    if (typeof picked === 'string' && picked.trim() !== '') return picked
+    // `undefined`, a blank string, or a non-string is a broken bridge, not a
+    // cancellation. Treating it as cancel would make the button do nothing
+    // with no explanation, so surface it as the failure it is.
+    throw new Error('桌面目录选择器返回了无效的目录路径。')
+  }
 }
 
 /** Registry mutations: manual order plus the workspace's own registration. */
@@ -346,7 +394,7 @@ export function createBrowserServices(runtime: PluginRuntime): BrowserServices {
     // Delegate instead of spreading: the Host service may expose prototype
     // methods, and the directory methods are adapted explicitly.
     uiWorkspace: {
-      pickDirectory: () => ui.pickDirectory(),
+      pickDirectory: createDirectoryPicker(ui),
       openSession: (sessionId) => ui.openSession(sessionId),
       startSession: (workspaceId) => ui.startSession(workspaceId),
       archiveSession: async (sessionId, options) => {

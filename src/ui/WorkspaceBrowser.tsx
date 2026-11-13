@@ -36,7 +36,7 @@ import { AddWorkspaceDialog, ArchiveConfirmDialog, DeleteWorkspaceDialog, Hidden
 import { ChevronDownIcon, SettingsIcon } from './icons.js'
 import { consumeAddWorkspaceIntent, onAddWorkspaceRequest } from './intents.js'
 import { updateBrowserPreferences, useBrowserPreferences } from './preferences.js'
-import { readSessionSelection, useSource, workspaceFailureMessage, type BrowserServices, type HostSessionRow } from './runtime.js'
+import { readSessionSelection, useSource, workspaceFailureMessage, chooserFallbackMessage, type BrowserServices, type HostSessionRow } from './runtime.js'
 import { styles } from './styles.js'
 
 /** Session rows rendered before the "load more" control appears. */
@@ -107,6 +107,10 @@ export function WorkspaceBrowser({
   const [addWorkspaceOpen, setAddWorkspaceOpen] = useState(false)
   const [addWorkspaceBusy, setAddWorkspaceBusy] = useState(false)
   const [addWorkspaceError, setAddWorkspaceError] = useState<string | null>(null)
+  // Bumped only when the chooser refuses, so the dialog opens already listing
+  // the Host instead of asking the user for one more click in a browse-only
+  // composition. null means a manual opening with no automatic listing.
+  const [addWorkspaceBrowseRequest, setAddWorkspaceBrowseRequest] = useState<number | null>(null)
   const addWorkspaceFlowRef = useRef(false)
   const chooseWorkspaceDirectoryRef = useRef<() => void>(() => {})
   const mountedRef = useRef(true)
@@ -354,6 +358,18 @@ export function WorkspaceBrowser({
   const beginAddWorkspace = () => { void chooseWorkspaceDirectory() }
 
   /**
+   * Close the add dialog and forget the pending fallback token.
+   *
+   * A later manual opening must not inherit an earlier chooser failure's
+   * automatic listing; only a new refusal asks for a new one.
+   */
+  const closeAddWorkspace = () => {
+    setAddWorkspaceOpen(false)
+    setAddWorkspaceError(null)
+    setAddWorkspaceBrowseRequest(null)
+  }
+
+  /**
    * Register an existing Host directory.
    *
    * The local guard only rejects blank and relative input. Everything else
@@ -377,6 +393,7 @@ export function WorkspaceBrowser({
       const created = await workspaceController.create(path.trim())
       if (!mountedRef.current) return
       setAddWorkspaceOpen(false)
+      setAddWorkspaceBrowseRequest(null)
       // A workspace hidden earlier must become visible again, otherwise adding
       // it would look like nothing happened. Merge against the latest shared
       // preferences because a native chooser may stay open across tab updates.
@@ -404,7 +421,14 @@ export function WorkspaceBrowser({
     }
   }
 
-  /** Use DSH's native chooser first; null is an intentional cancellation. */
+  /**
+   * Open DSH's chooser; on refusal fall back to browsing the Host in-app.
+   *
+   * `null` is an intentional cancellation, so it neither registers a workspace
+   * nor opens the dialog. A refusal means the composed backend may not serve
+   * native picking at all, so the add dialog opens with its first Host listing
+   * already requested; manual entry and retry stay available.
+   */
   const chooseWorkspaceDirectory = async () => {
     if (addWorkspaceFlowRef.current) return
     addWorkspaceFlowRef.current = true
@@ -417,7 +441,10 @@ export function WorkspaceBrowser({
     } catch (error) {
       if (!mountedRef.current) return
       setAddWorkspaceOpen(true)
-      setAddWorkspaceError(`系统目录选择器打开失败：${describeError(error)}。可重试，或手动输入/浏览主机目录。`)
+      setAddWorkspaceError(chooserFallbackMessage(describeError(error)))
+      // One token per refusal: the dialog consumes it once, and a retry that
+      // fails again while the dialog stays open asks for a fresh listing.
+      setAddWorkspaceBrowseRequest((current) => (current ?? 0) + 1)
     } finally {
       addWorkspaceFlowRef.current = false
       if (mountedRef.current) setAddWorkspaceBusy(false)
@@ -788,10 +815,11 @@ export function WorkspaceBrowser({
     {addWorkspaceOpen && <AddWorkspaceDialog
       busy={addWorkspaceBusy}
       error={addWorkspaceError}
+      browseRequest={addWorkspaceBrowseRequest}
       onPickDirectory={() => void chooseWorkspaceDirectory()}
       onListDirectory={(target, signal) => uiWorkspace.listDirectory(target, signal)}
       onSubmit={(path) => void confirmAddWorkspace(path)}
-      onClose={() => { setAddWorkspaceOpen(false); setAddWorkspaceError(null) }}
+      onClose={closeAddWorkspace}
     />}
 
     <footer className="wb-container wb-footer">数据来自 DSH 工作区与会话目录快照；打开会话时才切换到原生对话页。</footer>

@@ -35,6 +35,8 @@ import {
   updateBrowserPreferences,
 } from './preferences.js'
 import {
+  chooserFallbackMessage,
+  createDirectoryPicker,
   directoryFailureMessage,
   normalizeDirectoryListing,
   useSource,
@@ -67,7 +69,7 @@ export interface WorkspacePickerServices {
   readonly workspaces: Source<WorkspaceCatalogSnapshot>
   /** Register an existing host directory; rejects with a user-facing message. */
   readonly createWorkspace: (path: string) => Promise<WorkspaceRecord>
-  /** Open the Host's native directory chooser; null means the operator cancelled. */
+  /** Open the desktop shell's or the Host's directory chooser; null means cancelled. */
   readonly pickDirectory: () => Promise<string | null>
   /** List one Host directory level for the manual add dialog. */
   readonly listDirectory: (path: string | undefined, signal: AbortSignal) => Promise<DirectoryListingInfo>
@@ -112,6 +114,9 @@ export function EnhancedWorkspacePicker({
   const [addOpen, setAddOpen] = useState(false)
   const [addBusy, setAddBusy] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  // See AddWorkspaceDialog: a refused chooser asks for one automatic Host
+  // listing, while an ordinary manual opening starts none.
+  const [addBrowseRequest, setAddBrowseRequest] = useState<number | null>(null)
   const results = useMemo(() => filterWorkspaceSearch(index, query), [index, query])
   const listboxId = useId()
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -283,6 +288,7 @@ export function EnhancedWorkspacePicker({
   const closeAdd = () => {
     setAddOpen(false)
     setAddError(null)
+    setAddBrowseRequest(null)
   }
 
   const submitAdd = (path: string) => {
@@ -293,6 +299,7 @@ export function EnhancedWorkspacePicker({
     void createWorkspace(path).then((workspace) => {
       if (!mountedRef.current) return
       setAddOpen(false)
+      setAddBrowseRequest(null)
       onPick(workspace.workspaceId)
     }).catch((error) => {
       if (mountedRef.current) setAddError(describeError(error))
@@ -315,6 +322,7 @@ export function EnhancedWorkspacePicker({
           const workspace = await createWorkspace(path)
           if (!mountedRef.current) return
           setAddOpen(false)
+          setAddBrowseRequest(null)
           onPick(workspace.workspaceId)
         } catch (error) {
           // The chooser succeeded; this is a registration/path failure, so do
@@ -323,7 +331,10 @@ export function EnhancedWorkspacePicker({
         }
       } catch (error) {
         if (mountedRef.current) {
-          setAddError(`系统目录选择器打开失败：${describeError(error)}。可重试，或手动输入/浏览主机目录。`)
+          setAddError(chooserFallbackMessage(describeError(error)))
+          // The Host may serve only in-app browsing; list its starting
+          // directory now instead of leaving the dialog on an error alone.
+          setAddBrowseRequest((current) => (current ?? 0) + 1)
         }
       } finally {
         addFlowRef.current = false
@@ -464,6 +475,7 @@ export function EnhancedWorkspacePicker({
       <AddWorkspaceDialog
         busy={addBusy}
         error={addError}
+        browseRequest={addBrowseRequest}
         onPickDirectory={chooseDirectory}
         onListDirectory={listDirectory}
         onSubmit={submitAdd}
@@ -540,6 +552,10 @@ export function createWorkspacePickerController(deps: WorkspacePickerControllerD
  * owns the directory-flow declaration, and a second declaration would throw.
  */
 export function installWorkspacePicker(runtime: PluginRuntime): void {
+  // Resolve once, sharing the panel's adapter: a desktop shell bridge wins,
+  // otherwise the Host's composed picker decides between the OS dialog and
+  // in-app browsing.
+  const pickDirectory = createDirectoryPicker(runtime.uiWorkspace)
   runtime.slots.inject('conversation.hero.workspace', () => createWorkspacePickerController({
     slots: runtime.slots,
     readPreferences: () => loadBrowserPreferences(browserPreferenceStorage()),
@@ -566,7 +582,7 @@ export function installWorkspacePicker(runtime: PluginRuntime): void {
           throw new Error(workspaceFailureMessage(error), { cause: error })
         }
       }}
-      pickDirectory={() => runtime.uiWorkspace.pickDirectory()}
+      pickDirectory={pickDirectory}
       listDirectory={async (path, signal) => {
         try {
           return normalizeDirectoryListing(await runtime.uiWorkspace.listDirectory(path, signal))

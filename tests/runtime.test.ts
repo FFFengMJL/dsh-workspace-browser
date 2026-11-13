@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PANEL_ID } from '../src/panel.js'
 import {
+  chooserFallbackMessage,
   createBrowserServices,
   directoryFailureMessage,
   normalizeDirectoryListing,
@@ -487,6 +488,58 @@ describe('browser service adapter', () => {
 
     const cancelled = createBrowserServices(runtime({ pickDirectory: async () => null }))
     await expect(cancelled.uiWorkspace.pickDirectory()).resolves.toBeNull()
+  })
+
+  it('prefers the desktop bridge over the Host chooser and keeps its receiver', async () => {
+    const hostPick = vi.fn(async () => '/srv/host')
+    const target = globalThis as { __DSH_DIRECTORY_PICKER__?: unknown }
+    const bridge = {
+      selected: '/srv/desktop',
+      pick(): Promise<string | null> { return Promise.resolve(this.selected) },
+    }
+    target.__DSH_DIRECTORY_PICKER__ = bridge
+    try {
+      const services = createBrowserServices(runtime({ pickDirectory: hostPick }))
+      await expect(services.uiWorkspace.pickDirectory()).resolves.toBe('/srv/desktop')
+      expect(hostPick).not.toHaveBeenCalled()
+    } finally {
+      delete target.__DSH_DIRECTORY_PICKER__
+    }
+  })
+
+  it('preserves bridge cancellation and rejects an unreadable bridge answer', async () => {
+    const target = globalThis as { __DSH_DIRECTORY_PICKER__?: unknown }
+    try {
+      target.__DSH_DIRECTORY_PICKER__ = { pick: async () => null }
+      const cancelled = createBrowserServices(runtime())
+      await expect(cancelled.uiWorkspace.pickDirectory()).resolves.toBeNull()
+
+      // Only a string selects and only null cancels; a broken bridge must not
+      // look like a cancellation that silently closes the flow.
+      target.__DSH_DIRECTORY_PICKER__ = { pick: async () => undefined }
+      const broken = createBrowserServices(runtime())
+      await expect(broken.uiWorkspace.pickDirectory()).rejects.toThrow('桌面目录选择器返回了无效的目录路径。')
+    } finally {
+      delete target.__DSH_DIRECTORY_PICKER__
+    }
+  })
+
+  it('propagates a bridge rejection instead of falling back to the Host chooser', async () => {
+    const hostPick = vi.fn(async () => '/srv/host')
+    const target = globalThis as { __DSH_DIRECTORY_PICKER__?: unknown }
+    target.__DSH_DIRECTORY_PICKER__ = { pick: async () => { throw new Error('桥接已断开') } }
+    try {
+      const services = createBrowserServices(runtime({ pickDirectory: hostPick }))
+      await expect(services.uiWorkspace.pickDirectory()).rejects.toThrow('桥接已断开')
+      expect(hostPick).not.toHaveBeenCalled()
+    } finally {
+      delete target.__DSH_DIRECTORY_PICKER__
+    }
+  })
+
+  it('keeps the raw chooser refusal in the fallback copy', () => {
+    expect(chooserFallbackMessage('directory picker failed: unavailable'))
+      .toContain('directory picker failed: unavailable')
   })
 
   it('maps a created workspace to the row the panel renders', async () => {

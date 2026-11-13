@@ -11,7 +11,7 @@ import React from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { WorkspaceRecord } from '../src/logic.js'
-import type { WorkspaceCatalogSnapshot, Source } from '../src/ui/runtime.js'
+import type { DirectoryListingInfo, WorkspaceCatalogSnapshot, Source } from '../src/ui/runtime.js'
 import { EnhancedWorkspacePicker } from '../src/ui/workspacePicker.js'
 
 const workspace = (id: string, title: string, path: string): WorkspaceRecord => ({
@@ -46,6 +46,7 @@ interface RenderOptions {
   readonly onClose?: () => void
   readonly createWorkspace?: (path: string) => Promise<WorkspaceRecord>
   readonly pickDirectory?: () => Promise<string | null>
+  readonly listDirectory?: (path: string | undefined, signal: AbortSignal) => Promise<DirectoryListingInfo>
 }
 
 function renderPicker(options: RenderOptions = {}) {
@@ -64,6 +65,12 @@ function renderPicker(options: RenderOptions = {}) {
   const onClose = options.onClose ?? vi.fn()
   const createWorkspace = options.createWorkspace ?? (async (path: string) => workspace('created', '新工作区', path))
   const pickDirectory = options.pickDirectory ?? (async () => null)
+  const listDirectory = options.listDirectory ?? (async (path: string | undefined) => ({
+    path: path ?? '/home',
+    crumbs: [],
+    entries: [],
+    truncated: false,
+  }))
   render(<EnhancedWorkspacePicker
     open
     anchorRef={{ current: anchor }}
@@ -73,12 +80,7 @@ function renderPicker(options: RenderOptions = {}) {
     workspaces={source}
     createWorkspace={createWorkspace}
     pickDirectory={pickDirectory}
-    listDirectory={async (path) => ({
-      path: path ?? '/home',
-      crumbs: [],
-      entries: [],
-      truncated: false,
-    })}
+    listDirectory={listDirectory}
   />)
   return { onPick, onClose }
 }
@@ -145,7 +147,26 @@ describe('enhanced workspace picker', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加工作区…' }))
     fireEvent.click(await screen.findByRole('button', { name: '重新选择系统目录' }))
     expect(await screen.findByText('目录不可用')).toBeTruthy()
-    expect(screen.queryByText(/系统目录选择器打开失败/)).toBeNull()
+    expect(screen.queryByText(/系统目录选择器不可用/)).toBeNull()
+  })
+
+  it('lists the Host directory after the chooser refuses', async () => {
+    const listDirectory = vi.fn(async (path: string | undefined) => ({
+      path: path ?? '/home/me',
+      crumbs: [],
+      entries: [{ name: 'projects', path: '/home/me/projects' }],
+      truncated: false,
+    }))
+    renderPicker({
+      pickDirectory: async () => { throw new Error('directory picker failed: unavailable') },
+      listDirectory,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '添加工作区…' }))
+    fireEvent.click(await screen.findByRole('button', { name: '重新选择系统目录' }))
+
+    expect(await screen.findByText(/系统目录选择器不可用/)).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /projects/ })).toBeTruthy()
+    expect(listDirectory).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
   })
 
   it('reports no matches without picking anything', () => {
